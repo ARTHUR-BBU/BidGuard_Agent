@@ -18,4 +18,4 @@ artifacts/
 *.sqlite
 *.sqlite3
 .superpowers/
-
+.worktrees/
