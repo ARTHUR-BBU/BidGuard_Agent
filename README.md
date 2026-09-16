@@ -36,6 +36,15 @@ npm run dev -- --port 5173
 
 开发页面地址为 <http://localhost:5173>。
 
+## 当前前端验证
+
+当前尚未配置自动化前端测试脚本；该能力会在后续的 UI 测试任务中加入。现在前端可执行的验证方式是：
+
+```powershell
+cd frontend
+npm run build
+```
+
 ## 一次启动前后端
 
 在仓库根目录运行：
