@@ -69,6 +69,26 @@ class GuardedSession(Session):
     migrations) and must not be used for application requirement writes.
     """
 
+    def bulk_save_objects(
+        self,
+        objects: Iterable[object],
+        return_defaults: bool = False,
+        update_changed_only: bool = True,
+        preserve_order: bool = True,
+    ) -> None:
+        objects_to_save = list(objects)
+        if any(
+            getattr(type(item), "__guard_bulk_writes__", False)
+            for item in objects_to_save
+        ):
+            raise ValueError("Requirement bulk save is not allowed")
+        super().bulk_save_objects(
+            objects_to_save,
+            return_defaults=return_defaults,
+            update_changed_only=update_changed_only,
+            preserve_order=preserve_order,
+        )
+
     def bulk_update_mappings(
         self,
         mapper: Any,

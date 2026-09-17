@@ -311,6 +311,62 @@ def test_bulk_insert_mappings_for_requirement_is_rejected(db_session: Session) -
         )
 
 
+def test_bulk_save_requirement_insert_is_rejected_before_any_object_is_written(
+    db_session: GuardedSession,
+) -> None:
+    project, version, _requirement = make_project_graph()
+    db_session.add(project)
+    db_session.commit()
+    bulk_project = BidProject(name="must not be written", deadline_at=None)
+    forged_requirement = Requirement(
+        project_id=project.id,
+        source_version_id=version.id,
+        source_quote="bulk source",
+        text="bulk requirement",
+        kind=RequirementKind.TECHNICAL,
+        mandatory=True,
+        fingerprint="z" * 64,
+    )
+
+    with pytest.raises(ValueError, match="bulk save"):
+        db_session.bulk_save_objects(
+            item for item in [bulk_project, forged_requirement]
+        )
+
+    assert db_session.scalar(
+        select(func.count()).select_from(BidProject).where(BidProject.name == bulk_project.name)
+    ) == 0
+    assert db_session.scalar(select(func.count()).select_from(Requirement)) == 1
+
+
+def test_bulk_save_detached_requirement_update_is_rejected(
+    db_session: GuardedSession,
+) -> None:
+    _project, _version, requirement = make_project_graph()
+    db_session.add(requirement)
+    db_session.commit()
+    db_session.expunge(requirement)
+    requirement.text = "detached bulk update"
+
+    with pytest.raises(ValueError, match="bulk save"):
+        db_session.bulk_save_objects([requirement])
+
+    loaded = db_session.get(Requirement, requirement.id)
+    assert loaded is not None
+    assert loaded.text == "提供签字盖章的授权委托书"
+
+
+def test_bulk_save_for_other_models_remains_allowed(db_session: GuardedSession) -> None:
+    project = BidProject(name="bulk saved project", deadline_at=None)
+
+    db_session.bulk_save_objects([project])
+    db_session.commit()
+
+    assert db_session.scalar(
+        select(BidProject.name).where(BidProject.name == project.name)
+    ) == "bulk saved project"
+
+
 def test_application_sessions_use_guarded_session(db_session: Session) -> None:
     application_session = SessionLocal()
     try:
