@@ -1,10 +1,10 @@
-from collections.abc import Generator
+from collections.abc import Generator, Iterable
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import DateTime, MetaData, create_engine, event
+from sqlalchemy import DateTime, MetaData, create_engine, event, inspect
 from sqlalchemy.engine import Dialect, Engine
-from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
+from sqlalchemy.orm import DeclarativeBase, Mapper, Session, sessionmaker
 from sqlalchemy.pool import Pool
 from sqlalchemy.types import TypeDecorator
 
@@ -53,6 +53,48 @@ class UTCDateTime(TypeDecorator[datetime]):
         return value.astimezone(UTC)
 
 
+def _guards_bulk_writes(mapper: Any) -> bool:
+    inspected = inspect(mapper, raiseerr=False)
+    return isinstance(inspected, Mapper) and bool(
+        getattr(inspected.class_, "__guard_bulk_writes__", False)
+    )
+
+
+class GuardedSession(Session):
+    """Application database boundary for protected persistence models.
+
+    Application code must obtain sessions from ``SessionLocal``/``get_db`` or
+    construct this class explicitly. A plain SQLAlchemy ``Session`` is an
+    intentionally unguarded infrastructure escape hatch (for example,
+    migrations) and must not be used for application requirement writes.
+    """
+
+    def bulk_update_mappings(
+        self,
+        mapper: Any,
+        mappings: Iterable[dict[str, Any]],
+    ) -> None:
+        if _guards_bulk_writes(mapper):
+            raise ValueError("Requirement bulk UPDATE mappings are not allowed")
+        super().bulk_update_mappings(mapper, mappings)
+
+    def bulk_insert_mappings(
+        self,
+        mapper: Any,
+        mappings: Iterable[dict[str, Any]],
+        return_defaults: bool = False,
+        render_nulls: bool = False,
+    ) -> None:
+        if _guards_bulk_writes(mapper):
+            raise ValueError("Requirement bulk INSERT mappings are not allowed")
+        super().bulk_insert_mappings(
+            mapper,
+            mappings,
+            return_defaults=return_defaults,
+            render_nulls=render_nulls,
+        )
+
+
 def _enable_sqlite_foreign_keys(
     dbapi_connection: Any,
     _connection_record: Any,
@@ -97,9 +139,9 @@ def build_engine(
 
 
 engine = build_engine()
-SessionLocal = sessionmaker(bind=engine, expire_on_commit=False, class_=Session)
+SessionLocal = sessionmaker(bind=engine, expire_on_commit=False, class_=GuardedSession)
 
 
-def get_db() -> Generator[Session, None, None]:  # noqa: UP043
+def get_db() -> Generator[GuardedSession, None, None]:  # noqa: UP043
     with SessionLocal() as session:
         yield session

@@ -22,13 +22,12 @@ from sqlalchemy.orm import (
     Mapped,
     Mapper,
     ORMExecuteState,
-    Session,
     mapped_column,
     relationship,
 )
-from sqlalchemy.sql.dml import Update
+from sqlalchemy.sql.dml import UpdateBase
 
-from app.db import Base, UTCDateTime
+from app.db import Base, GuardedSession, UTCDateTime
 
 
 def utc_now() -> datetime:
@@ -162,6 +161,7 @@ class DocumentChunk(Base):
 
 class Requirement(Base):
     __tablename__ = "requirements"
+    __guard_bulk_writes__ = True
     __table_args__ = (
         CheckConstraint(
             "source_page IS NULL OR source_page >= 1",
@@ -379,17 +379,16 @@ def _protect_requirement_identity(
         )
 
 
-@event.listens_for(Session, "do_orm_execute")
+@event.listens_for(GuardedSession, "do_orm_execute")
 def _protect_requirement_bulk_identity(execute_state: ORMExecuteState) -> None:
-    statement = execute_state.statement
-    if execute_state.bind_mapper is not Requirement.__mapper__ or not isinstance(
-        statement, Update
-    ):
+    if not (execute_state.is_insert or execute_state.is_update):
         return
-    updated_fields = {
-        getattr(column, "key", str(column)) for column in (statement._values or {})
-    }
-    if {"kind", "text", "fingerprint"} & updated_fields:
-        raise ValueError(
-            "Requirement identity fields cannot be changed with bulk DML"
-        )
+
+    statement = execute_state.statement
+    if not isinstance(statement, UpdateBase):
+        return
+    if (
+        execute_state.bind_mapper is Requirement.__mapper__
+        or statement.table is Requirement.__table__
+    ):
+        raise ValueError("Requirement bulk INSERT/UPDATE is not allowed")

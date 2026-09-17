@@ -1,12 +1,13 @@
 from datetime import UTC, datetime, timedelta, timezone
+from typing import cast
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine, func, inspect, select, text, update
+from sqlalchemy import Table, create_engine, func, insert, inspect, select, text, update
 from sqlalchemy.exc import IntegrityError, StatementError
 from sqlalchemy.orm import Session
 
-from app.db import Base, UTCDateTime, build_engine
+from app.db import Base, GuardedSession, SessionLocal, UTCDateTime, build_engine
 from app.domain.enums import (
     DisplayStatus,
     DocumentRole,
@@ -32,11 +33,14 @@ from app.persistence.models import (
     calculate_requirement_fingerprint,
 )
 from app.persistence.repositories import (
+    NewRequirement,
+    create_requirements,
     get_document_version,
     get_project,
     get_requirement,
     list_project_documents,
     list_project_requirements,
+    update_requirements_active,
 )
 
 EXPECTED_TABLES = {
@@ -88,6 +92,27 @@ def make_project_graph() -> tuple[BidProject, DocumentVersion, Requirement]:
         mandatory=True,
     )
     return project, version, requirement
+
+
+def requirement_mapping(
+    project_id: int,
+    source_version_id: int,
+    *,
+    text_value: str = "bulk requirement",
+) -> dict[str, object]:
+    return {
+        "project_id": project_id,
+        "source_version_id": source_version_id,
+        "source_quote": "bulk source",
+        "text": text_value,
+        "kind": RequirementKind.TECHNICAL,
+        "mandatory": True,
+        "fingerprint": "z" * 64,
+    }
+
+
+def requirement_table() -> Table:
+    return cast(Table, Requirement.__table__)
 
 
 def test_requirement_points_to_exact_tender_version(db_session: Session) -> None:
@@ -162,6 +187,19 @@ def test_persisted_requirement_identity_is_immutable(
         db_session.commit()
 
 
+def test_persisted_requirement_active_state_can_be_updated(
+    db_session: GuardedSession,
+) -> None:
+    _project, _version, requirement = make_project_graph()
+    db_session.add(requirement)
+    db_session.commit()
+
+    requirement.active = False
+    db_session.commit()
+
+    assert requirement.active is False
+
+
 @pytest.mark.parametrize(
     "changes",
     [
@@ -177,10 +215,191 @@ def test_bulk_dml_cannot_change_requirement_identity(
     db_session.add(requirement)
     db_session.commit()
 
-    with pytest.raises(ValueError, match="bulk DML"):
+    with pytest.raises(ValueError, match="bulk INSERT/UPDATE"):
         db_session.execute(
             update(Requirement).where(Requirement.id == requirement.id).values(**changes)
         )
+
+
+def test_execute_bulk_update_by_primary_key_is_rejected(db_session: Session) -> None:
+    _project, _version, requirement = make_project_graph()
+    db_session.add(requirement)
+    db_session.commit()
+
+    with pytest.raises(ValueError, match="bulk INSERT/UPDATE"):
+        db_session.execute(
+            update(Requirement),
+            [{"id": requirement.id, "text": "bulk primary-key update"}],
+        )
+
+
+def test_execute_ordered_values_update_is_rejected(db_session: Session) -> None:
+    _project, _version, requirement = make_project_graph()
+    db_session.add(requirement)
+    db_session.commit()
+
+    with pytest.raises(ValueError, match="bulk INSERT/UPDATE"):
+        db_session.execute(
+            update(Requirement)
+            .where(Requirement.id == requirement.id)
+            .ordered_values((Requirement.text, "ordered update"))
+        )
+
+
+def test_bulk_update_mappings_for_requirement_is_rejected(db_session: Session) -> None:
+    _project, _version, requirement = make_project_graph()
+    db_session.add(requirement)
+    db_session.commit()
+
+    with pytest.raises(ValueError, match="bulk UPDATE mappings"):
+        db_session.bulk_update_mappings(
+            Requirement,
+            [{"id": requirement.id, "text": "legacy bulk update"}],
+        )
+
+
+def test_execute_bulk_insert_for_requirement_is_rejected(db_session: Session) -> None:
+    project, version, _requirement = make_project_graph()
+    db_session.add(project)
+    db_session.commit()
+
+    with pytest.raises(ValueError, match="bulk INSERT/UPDATE"):
+        db_session.execute(
+            insert(Requirement),
+            [requirement_mapping(project.id, version.id)],
+        )
+
+
+def test_execute_core_table_update_for_requirement_is_rejected(
+    db_session: Session,
+) -> None:
+    _project, _version, requirement = make_project_graph()
+    db_session.add(requirement)
+    db_session.commit()
+
+    with pytest.raises(ValueError, match="bulk INSERT/UPDATE"):
+        db_session.execute(
+            update(requirement_table())
+            .where(requirement_table().c.id == requirement.id)
+            .values(text="core table update")
+        )
+
+
+def test_execute_core_table_insert_for_requirement_is_rejected(
+    db_session: Session,
+) -> None:
+    project, version, _requirement = make_project_graph()
+    db_session.add(project)
+    db_session.commit()
+
+    with pytest.raises(ValueError, match="bulk INSERT/UPDATE"):
+        db_session.execute(
+            insert(requirement_table()),
+            [requirement_mapping(project.id, version.id)],
+        )
+
+
+def test_bulk_insert_mappings_for_requirement_is_rejected(db_session: Session) -> None:
+    project, version, _requirement = make_project_graph()
+    db_session.add(project)
+    db_session.commit()
+
+    with pytest.raises(ValueError, match="bulk INSERT mappings"):
+        db_session.bulk_insert_mappings(
+            Requirement,
+            [requirement_mapping(project.id, version.id)],
+        )
+
+
+def test_application_sessions_use_guarded_session(db_session: Session) -> None:
+    application_session = SessionLocal()
+    try:
+        assert isinstance(application_session, GuardedSession)
+        assert isinstance(db_session, GuardedSession)
+    finally:
+        application_session.close()
+
+
+def test_repository_creates_requirements_with_calculated_fingerprint(
+    db_session: GuardedSession,
+) -> None:
+    project, version, _requirement = make_project_graph()
+    db_session.add(project)
+    db_session.flush()
+    inputs = [
+        NewRequirement(
+            project_id=project.id,
+            source_version_id=version.id,
+            source_page=7,
+            source_section="资格要求",
+            source_quote="必须提供营业执照",
+            text="提供有效的营业执照",
+            kind=RequirementKind.QUALIFICATION,
+            mandatory=True,
+        )
+    ]
+
+    created = create_requirements(db_session, inputs)
+
+    assert len(created) == 1
+    assert created[0].id > 0
+    assert created[0].fingerprint == calculate_requirement_fingerprint(
+        RequirementKind.QUALIFICATION,
+        "提供有效的营业执照",
+    )
+    assert "fingerprint" not in NewRequirement.__dataclass_fields__
+
+
+def test_repository_updates_only_requirement_active_state(
+    db_session: GuardedSession,
+) -> None:
+    _project, _version, requirement = make_project_graph()
+    db_session.add(requirement)
+    db_session.commit()
+
+    updated = update_requirements_active(
+        db_session,
+        [requirement.id],
+        active=False,
+    )
+    db_session.commit()
+    db_session.expire_all()
+    loaded = db_session.get(Requirement, requirement.id)
+
+    assert [item.id for item in updated] == [requirement.id]
+    assert loaded is not None
+    assert loaded.active is False
+
+
+def test_other_models_keep_all_bulk_write_paths(db_session: Session) -> None:
+    first = BidProject(name="first", deadline_at=None)
+    second = BidProject(name="second", deadline_at=None)
+    db_session.add_all([first, second])
+    db_session.commit()
+
+    db_session.execute(
+        update(BidProject).where(BidProject.id == first.id).values(name="execute update")
+    )
+    db_session.bulk_update_mappings(
+        BidProject,
+        [{"id": second.id, "name": "mapping update"}],
+    )
+    db_session.execute(
+        insert(BidProject),
+        [{"name": "execute insert", "deadline_at": None}],
+    )
+    db_session.bulk_insert_mappings(
+        BidProject,
+        [{"name": "mapping insert", "deadline_at": None}],
+    )
+    db_session.commit()
+
+    assert set(db_session.scalars(select(BidProject.name))) == {
+        "execute update",
+        "mapping update",
+        "execute insert",
+        "mapping insert",
+    }
 
 
 def test_metadata_contains_exactly_the_bidguard_tables() -> None:
