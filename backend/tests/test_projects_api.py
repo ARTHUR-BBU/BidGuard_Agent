@@ -237,3 +237,49 @@ def test_project_deadline_rejects_non_iso_json_values(
     )
 
     assert response.status_code == 422
+
+
+@pytest.mark.parametrize(
+    "deadline_at",
+    [
+        "2026-10-01X09:00:00Z",
+        "2026-10-01_09:00:00+08:00",
+        "2026-10-01 09:00:00Z",
+        "2026-10-01T09:00Z",
+        "2026-10-01T09:00:00+0800",
+        "2026-10-01T09:00:00+08:60",
+        "2026-02-30T09:00:00Z",
+        "2026-10-01T25:00:00Z",
+    ],
+)
+def test_project_deadline_rejects_near_iso_formats(
+    client: TestClient, deadline_at: str
+) -> None:
+    response = client.post(
+        "/api/projects",
+        json={"name": "near iso deadline", "deadline_at": deadline_at},
+    )
+
+    assert response.status_code == 422
+
+
+@pytest.mark.parametrize(
+    ("deadline_at", "expected_utc"),
+    [
+        ("  2026-10-01T09:00:00Z  ", "2026-10-01T09:00:00Z"),
+        ("2026-10-01T17:00:00+08:00", "2026-10-01T09:00:00Z"),
+        ("2026-10-01T04:00:00-05:00", "2026-10-01T09:00:00Z"),
+        ("2026-10-01T09:00:00.1Z", "2026-10-01T09:00:00.100000Z"),
+        ("2026-10-01T09:00:00.123456Z", "2026-10-01T09:00:00.123456Z"),
+    ],
+)
+def test_project_deadline_accepts_strict_iso_boundaries(
+    client: TestClient, deadline_at: str, expected_utc: str
+) -> None:
+    response = client.post(
+        "/api/projects",
+        json={"name": "strict iso deadline", "deadline_at": deadline_at},
+    )
+
+    assert response.status_code == 201
+    assert response.json()["deadline_at"] == expected_utc

@@ -1,8 +1,14 @@
+import re
 from datetime import UTC, datetime
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.domain.enums import EvidenceState, RequirementKind, Severity
+
+PROJECT_DEADLINE_ISO_PATTERN = re.compile(
+    r"^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}"
+    r"(?:\.[0-9]{1,6})?(?:Z|[+-](?:[01][0-9]|2[0-3]):[0-5][0-9])$"
+)
 
 
 def _strip_string(value: object) -> object:
@@ -81,6 +87,8 @@ class ProjectCreate(BaseModel):
             parsed = value
         elif isinstance(value, str):
             iso_value = value.strip()
+            if PROJECT_DEADLINE_ISO_PATTERN.fullmatch(iso_value) is None:
+                raise ValueError("deadline_at must use strict ISO-8601 format")
             if iso_value.endswith("Z"):
                 iso_value = f"{iso_value[:-1]}+00:00"
             try:
