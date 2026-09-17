@@ -34,7 +34,10 @@ def _project_summaries_statement():  # type: ignore[no-untyped-def]
     deadline_is_missing = case((BidProject.deadline_at.is_(None), 1), else_=0)
     return (
         select(BidProject, *_status_count_columns())
-        .outerjoin(Requirement, Requirement.project_id == BidProject.id)
+        .outerjoin(
+            Requirement,
+            (Requirement.project_id == BidProject.id) & Requirement.active.is_(True),
+        )
         .outerjoin(
             Assessment,
             (Assessment.requirement_id == Requirement.id)

@@ -1,4 +1,5 @@
 import re
+import unicodedata
 from datetime import UTC, datetime
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -78,30 +79,40 @@ class ProjectCreate(BaseModel):
     def strip_name(cls, value: object) -> object:
         return _strip_string(value)
 
+    @field_validator("name")
+    @classmethod
+    def require_visible_name(cls, value: str) -> str:
+        if not any(
+            not character.isspace() and unicodedata.category(character) != "Cf"
+            for character in value
+        ):
+            raise ValueError("name must contain a visible character")
+        return value
+
     @field_validator("deadline_at", mode="before")
     @classmethod
     def normalize_deadline_to_utc(cls, value: object) -> datetime | None:
         if value is None:
             return None
-        if isinstance(value, datetime):
-            parsed = value
-        elif isinstance(value, str):
-            iso_value = value.strip()
-            if PROJECT_DEADLINE_ISO_PATTERN.fullmatch(iso_value) is None:
-                raise ValueError("deadline_at must use strict ISO-8601 format")
-            if iso_value.endswith("Z"):
-                iso_value = f"{iso_value[:-1]}+00:00"
-            try:
+        try:
+            if isinstance(value, datetime):
+                parsed = value
+            elif isinstance(value, str):
+                iso_value = value.strip()
+                if PROJECT_DEADLINE_ISO_PATTERN.fullmatch(iso_value) is None:
+                    raise ValueError("deadline_at must use strict ISO-8601 format")
+                if iso_value.endswith("Z"):
+                    iso_value = f"{iso_value[:-1]}+00:00"
                 parsed = datetime.fromisoformat(iso_value)
-            except ValueError as error:
-                raise ValueError("deadline_at must be an ISO-8601 datetime") from error
-        else:
-            raise ValueError(  # noqa: TRY004 - Pydantic converts this to HTTP 422.
-                "deadline_at must be an ISO-8601 datetime string"
-            )
-        if parsed.tzinfo is None or parsed.utcoffset() is None:
-            raise ValueError("deadline_at must include a timezone offset")
-        return parsed.astimezone(UTC)
+            else:
+                raise ValueError(  # noqa: TRY004 - Pydantic converts this to HTTP 422.
+                    "deadline_at must be an ISO-8601 datetime string"
+                )
+            if parsed.tzinfo is None or parsed.utcoffset() is None:
+                raise ValueError("deadline_at must include a timezone offset")
+            return parsed.astimezone(UTC)
+        except (OverflowError, ValueError) as error:
+            raise ValueError("deadline_at must be a valid UTC datetime") from error
 
 
 class ProjectResponse(BaseModel):

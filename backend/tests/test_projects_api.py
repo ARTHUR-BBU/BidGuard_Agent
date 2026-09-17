@@ -1,8 +1,13 @@
 from collections.abc import Iterator
 from datetime import UTC, datetime
+from typing import Any
 
 import pytest
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from sqlalchemy import event
+from sqlalchemy.exc import OperationalError
+from sqlalchemy.orm import sessionmaker
 
 from app.db import GuardedSession, get_db
 from app.domain.enums import (
@@ -24,12 +29,31 @@ from app.persistence.models import (
 
 
 @pytest.fixture
-def client(db_session: GuardedSession) -> Iterator[TestClient]:
+def app(db_session: GuardedSession) -> Iterator[FastAPI]:
+    session_factory = sessionmaker(
+        bind=db_session.get_bind(),
+        class_=GuardedSession,
+        expire_on_commit=False,
+    )
+
+    def get_request_db() -> Iterator[GuardedSession]:
+        with session_factory() as request_session:
+            try:
+                yield request_session
+            except Exception:
+                request_session.rollback()
+                raise
+
     app = create_app()
-    app.dependency_overrides[get_db] = lambda: db_session
+    app.dependency_overrides[get_db] = get_request_db
+    yield app
+    app.dependency_overrides.clear()
+
+
+@pytest.fixture
+def client(app: FastAPI) -> Iterator[TestClient]:
     with TestClient(app) as test_client:
         yield test_client
-    app.dependency_overrides.clear()
 
 
 def _add_assessment(
@@ -38,6 +62,7 @@ def _add_assessment(
     status: DisplayStatus,
     *,
     current: bool = True,
+    requirement_active: bool = True,
 ) -> None:
     document = Document(
         project=project,
@@ -57,6 +82,7 @@ def _add_assessment(
         text=f"{project.name} requirement {status.value}",
         kind=RequirementKind.QUALIFICATION,
         mandatory=True,
+        active=requirement_active,
     )
     review_run = ReviewRun(
         project=project,
@@ -202,6 +228,32 @@ def test_project_status_counts_use_only_current_assessments_for_its_requirements
     }
 
 
+def test_project_status_counts_exclude_inactive_requirements(
+    client: TestClient, db_session: GuardedSession
+) -> None:
+    project = BidProject(name="active requirement project", deadline_at=None)
+    _add_assessment(db_session, project, DisplayStatus.HIGH_RISK)
+    _add_assessment(
+        db_session,
+        project,
+        DisplayStatus.NEEDS_EVIDENCE,
+        requirement_active=False,
+    )
+    db_session.add(project)
+    db_session.commit()
+
+    response = client.get(f"/api/projects/{project.id}")
+
+    assert response.status_code == 200
+    assert response.json()["status_counts"] == {
+        "high_risk": 1,
+        "needs_evidence": 0,
+        "optimize": 0,
+        "satisfied": 0,
+        "needs_confirmation": 0,
+    }
+
+
 def test_project_input_trims_name_and_rejects_invalid_values(client: TestClient) -> None:
     trimmed = client.post("/api/projects", json={"name": "  trimmed name  "})
     blank = client.post("/api/projects", json={"name": "   "})
@@ -222,6 +274,26 @@ def test_project_input_trims_name_and_rejects_invalid_values(client: TestClient)
     assert naive_deadline.status_code == 422
     assert offset_deadline.status_code == 201
     assert offset_deadline.json()["deadline_at"] == "2026-10-01T09:00:00Z"
+
+
+@pytest.mark.parametrize("name", ["\u200b", "\ufeff", " \u200b\ufeff "])
+def test_project_name_rejects_only_invisible_characters(
+    client: TestClient, name: str
+) -> None:
+    response = client.post("/api/projects", json={"name": name})
+
+    assert response.status_code == 422
+
+
+def test_project_name_preserves_visible_unicode_and_format_characters(
+    client: TestClient,
+) -> None:
+    name = "  团队👩\u200d💻\u200b投标  "
+
+    response = client.post("/api/projects", json={"name": name})
+
+    assert response.status_code == 201
+    assert response.json()["name"] == "团队👩\u200d💻\u200b投标"
 
 
 @pytest.mark.parametrize(
@@ -283,3 +355,84 @@ def test_project_deadline_accepts_strict_iso_boundaries(
 
     assert response.status_code == 201
     assert response.json()["deadline_at"] == expected_utc
+
+
+@pytest.mark.parametrize(
+    "deadline_at",
+    ["0001-01-01T00:00:00+23:59", "9999-12-31T23:59:59-23:59"],
+)
+def test_project_deadline_rejects_utc_conversion_overflow(
+    app: FastAPI, deadline_at: str
+) -> None:
+    with TestClient(app, raise_server_exceptions=False) as error_client:
+        response = error_client.post(
+            "/api/projects",
+            json={"name": "overflow deadline", "deadline_at": deadline_at},
+        )
+
+    assert response.status_code == 422
+
+
+@pytest.mark.parametrize(
+    ("project_id", "expected_status"),
+    [
+        (0, 422),
+        (-1, 422),
+        (9_223_372_036_854_775_807, 404),
+        (9_223_372_036_854_775_808, 422),
+    ],
+)
+def test_project_detail_validates_database_safe_identifier_bounds(
+    client: TestClient, project_id: int, expected_status: int
+) -> None:
+    response = client.get(f"/api/projects/{project_id}")
+
+    assert response.status_code == expected_status
+    if expected_status == 404:
+        assert response.json() == {"detail": "Project not found"}
+
+
+def test_project_create_persists_across_independent_request_sessions(
+    client: TestClient,
+) -> None:
+    created = client.post("/api/projects", json={"name": "persistent project"})
+
+    detail = client.get(f"/api/projects/{created.json()['id']}")
+    listed = client.get("/api/projects")
+
+    assert created.status_code == 201
+    assert detail.status_code == 200
+    assert [item["name"] for item in listed.json()] == ["persistent project"]
+
+
+def test_failed_project_insert_rolls_back_and_next_request_succeeds(
+    app: FastAPI, db_session: GuardedSession
+) -> None:
+    engine = db_session.get_bind()
+    fail_next_project_insert = True
+
+    def fail_one_project_insert(
+        _connection: object,
+        _cursor: object,
+        statement: str,
+        parameters: Any,
+        _context: object,
+        _executemany: object,
+    ) -> None:
+        nonlocal fail_next_project_insert
+        if fail_next_project_insert and "INSERT INTO bid_projects" in statement:
+            fail_next_project_insert = False
+            raise OperationalError(statement, parameters, Exception("forced insert failure"))
+
+    event.listen(engine, "before_cursor_execute", fail_one_project_insert)
+    try:
+        with TestClient(app, raise_server_exceptions=False) as error_client:
+            failed = error_client.post("/api/projects", json={"name": "failed project"})
+            created = error_client.post("/api/projects", json={"name": "recovered project"})
+            listed = error_client.get("/api/projects")
+    finally:
+        event.remove(engine, "before_cursor_execute", fail_one_project_insert)
+
+    assert failed.status_code == 500
+    assert created.status_code == 201
+    assert [item["name"] for item in listed.json()] == ["recovered project"]

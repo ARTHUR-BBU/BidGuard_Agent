@@ -1,6 +1,6 @@
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Path, status
 
 from app.db import GuardedSession, get_db
 from app.domain.schemas import ProjectCreate, ProjectResponse, StatusCounts
@@ -41,7 +41,7 @@ def list_projects(
 
 @router.get("/projects/{project_id}", response_model=ProjectResponse)
 def get_project(
-    project_id: int,
+    project_id: Annotated[int, Path(ge=1, le=9_223_372_036_854_775_807)],
     session: Annotated[GuardedSession, Depends(get_db)],
 ) -> ProjectResponse:
     summary = get_project_summary(session, project_id)
