@@ -6,14 +6,15 @@ from fastapi import FastAPI
 from .api.documents import router as documents_router
 from .api.health import router as health_router
 from .api.projects import router as projects_router
-from .db import Base, engine
+from .db import engine
 from .middleware.body_limit import UploadBodyLimitMiddleware
 from .persistence import models as _models  # noqa: F401
+from .persistence.schema import ensure_schema
 
 
 @asynccontextmanager
 async def lifespan(_: FastAPI) -> AsyncIterator[None]:
-    Base.metadata.create_all(engine)
+    ensure_schema(engine)
     yield
 
 
