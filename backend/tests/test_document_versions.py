@@ -1,9 +1,11 @@
 from collections.abc import Iterator
 from pathlib import Path
+from typing import Any
 
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from httpx2 import Response
 from sqlalchemy import event, func, select
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import sessionmaker
@@ -34,6 +36,7 @@ def app(
                 raise
 
     monkeypatch.setenv("STORAGE_ROOT", str(tmp_path / "uploads"))
+    monkeypatch.setattr("app.main.engine", db_session.get_bind())
     get_settings.cache_clear()
     application = create_app()
     application.dependency_overrides[get_db] = get_request_db
@@ -61,7 +64,7 @@ def _upload_project_document(
     *,
     filename: str = "招标文件.pdf",
     role: str = "tender",
-):
+) -> Response:
     return client.post(
         f"/api/projects/{project_id}/documents",
         params={"role": role},
@@ -287,7 +290,7 @@ def test_get_documents_has_stable_document_and_version_order(
     assert missing.status_code == 404
 
 
-def test_database_failure_removes_new_content_and_temporary_files(
+def test_database_failure_keeps_published_content_but_removes_temporary_files(
     app: FastAPI, db_session: GuardedSession, tmp_path: Path
 ) -> None:
     engine = db_session.get_bind()
@@ -300,7 +303,7 @@ def test_database_failure_removes_new_content_and_temporary_files(
         _connection: object,
         _cursor: object,
         statement: str,
-        parameters: object,
+        parameters: Any,
         _context: object,
         _executemany: object,
     ) -> None:
@@ -315,7 +318,7 @@ def test_database_failure_removes_new_content_and_temporary_files(
             response = _upload_project_document(
                 error_client,
                 project.id,
-                b"must be removed",
+                b"must be retained",
             )
     finally:
         event.remove(engine, "before_cursor_execute", fail_one_version_insert)
@@ -325,6 +328,7 @@ def test_database_failure_removes_new_content_and_temporary_files(
     assert db_session.scalar(select(func.count()).select_from(Document)) == 0
     assert db_session.scalar(select(func.count()).select_from(DocumentVersion)) == 0
     uploads = tmp_path / "uploads"
-    assert not uploads.exists() or not [
-        path for path in uploads.rglob("*") if path.is_file()
-    ]
+    published_files = [path for path in uploads.rglob("*") if path.is_file()]
+    assert len(published_files) == 1
+    assert published_files[0].read_bytes() == b"must be retained"
+    assert not list(uploads.rglob("*.tmp"))

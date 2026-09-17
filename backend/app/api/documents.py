@@ -14,7 +14,13 @@ from fastapi import (
 from fastapi import Path as ApiPath
 
 from app.db import GuardedSession, get_db
-from app.documents.storage import ALLOWED_SUFFIXES, MAX_UPLOAD_BYTES
+from app.documents.storage import (
+    ALLOWED_SUFFIXES,
+    StorageCapabilityError,
+    StorageIntegrityError,
+    UploadTooLargeError,
+    hash_upload,
+)
 from app.domain.enums import DocumentRole
 from app.domain.schemas import (
     DocumentResponse,
@@ -49,7 +55,7 @@ def _upload_response(result: IngestionResult) -> DocumentUploadResponse:
     )
 
 
-async def _read_upload(file: UploadFile) -> tuple[str, bytes]:
+def _read_upload(file: UploadFile) -> tuple[str, str, int]:
     filename = file.filename or ""
     suffix = Path(filename).suffix.lower()
     if suffix not in ALLOWED_SUFFIXES:
@@ -57,17 +63,26 @@ async def _read_upload(file: UploadFile) -> tuple[str, bytes]:
             status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
             detail="Only PDF and DOCX files are supported",
         )
-    content = await file.read(MAX_UPLOAD_BYTES + 1)
-    if not content:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST, detail="File is empty"
-        )
-    if len(content) > MAX_UPLOAD_BYTES:
+    try:
+        digest, size = hash_upload(file.file)
+    except UploadTooLargeError as error:
         raise HTTPException(
             status_code=status.HTTP_413_CONTENT_TOO_LARGE,
             detail="File exceeds 50 MiB limit",
-        )
-    return filename, content
+        ) from error
+    except ValueError as error:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="File is empty"
+        ) from error
+    return filename, digest, size
+
+
+def _storage_error(
+    error: StorageIntegrityError | StorageCapabilityError,
+) -> HTTPException:
+    if isinstance(error, StorageIntegrityError):
+        return HTTPException(500, "Stored document failed integrity verification")
+    return HTTPException(503, "Document storage is unavailable")
 
 
 @router.post(
@@ -75,7 +90,7 @@ async def _read_upload(file: UploadFile) -> tuple[str, bytes]:
     response_model=DocumentUploadResponse,
     status_code=status.HTTP_201_CREATED,
 )
-async def upload_project_document(
+def upload_project_document(
     project_id: Annotated[int, ApiPath(ge=1, le=9_223_372_036_854_775_807)],
     role: Annotated[Literal["tender", "proposal"], Query()],
     file: Annotated[UploadFile, File()],
@@ -83,7 +98,7 @@ async def upload_project_document(
     session: Annotated[GuardedSession, Depends(get_db)],
     storage_root: Annotated[Path, Depends(get_storage_root)],
 ) -> DocumentUploadResponse:
-    filename, content = await _read_upload(file)
+    filename, digest, size = _read_upload(file)
     try:
         result = ingest_project_document(
             session,
@@ -91,13 +106,17 @@ async def upload_project_document(
             project_id,
             DocumentRole(role),
             filename,
-            content,
+            file.file,
+            digest=digest,
+            size=size,
         )
     except ProjectNotFoundError as error:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Project not found",
         ) from error
+    except (StorageIntegrityError, StorageCapabilityError) as error:
+        raise _storage_error(error) from error
     if not result.created:
         response.status_code = status.HTTP_200_OK
     return _upload_response(result)
@@ -108,14 +127,19 @@ async def upload_project_document(
     response_model=DocumentUploadResponse,
     status_code=status.HTTP_201_CREATED,
 )
-async def upload_company_evidence(
+def upload_company_evidence(
     file: Annotated[UploadFile, File()],
     response: Response,
     session: Annotated[GuardedSession, Depends(get_db)],
     storage_root: Annotated[Path, Depends(get_storage_root)],
 ) -> DocumentUploadResponse:
-    filename, content = await _read_upload(file)
-    result = ingest_company_document(session, storage_root, filename, content)
+    filename, digest, size = _read_upload(file)
+    try:
+        result = ingest_company_document(
+            session, storage_root, filename, file.file, digest=digest, size=size
+        )
+    except (StorageIntegrityError, StorageCapabilityError) as error:
+        raise _storage_error(error) from error
     if not result.created:
         response.status_code = status.HTTP_200_OK
     return _upload_response(result)

@@ -7,6 +7,7 @@ from .api.documents import router as documents_router
 from .api.health import router as health_router
 from .api.projects import router as projects_router
 from .db import Base, engine
+from .middleware.body_limit import UploadBodyLimitMiddleware
 from .persistence import models as _models  # noqa: F401
 
 
@@ -18,6 +19,7 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
 
 def create_app() -> FastAPI:
     application = FastAPI(title="BidGuard API", lifespan=lifespan)
+    application.add_middleware(UploadBodyLimitMiddleware)
     application.include_router(health_router, prefix="/api")
     application.include_router(projects_router, prefix="/api")
     application.include_router(documents_router, prefix="/api")

@@ -29,7 +29,10 @@ from app.persistence.models import (
 
 
 @pytest.fixture
-def app(db_session: GuardedSession) -> Iterator[FastAPI]:
+def app(
+    db_session: GuardedSession, monkeypatch: pytest.MonkeyPatch
+) -> Iterator[FastAPI]:
+    monkeypatch.setattr("app.main.engine", db_session.get_bind())
     session_factory = sessionmaker(
         bind=db_session.get_bind(),
         class_=GuardedSession,
@@ -64,17 +67,25 @@ def _add_assessment(
     current: bool = True,
     requirement_active: bool = True,
 ) -> None:
-    document = Document(
-        project=project,
-        role="tender",
-        display_name=f"{project.name}.pdf",
-    )
-    version = DocumentVersion(
-        document=document,
-        version_number=1,
-        sha256="a" * 64,
-        storage_path=f"tender/{project.name}.pdf",
-    )
+    # Several requirements can originate from the same tender version.
+    with session.no_autoflush:
+        document = next(
+            (item for item in project.documents if item.role == "tender"), None
+        )
+        if document is None:
+            document = Document(
+                project=project,
+                role="tender",
+                display_name=f"{project.name}.pdf",
+            )
+            version = DocumentVersion(
+                document=document,
+                version_number=1,
+                sha256="a" * 64,
+                storage_path=f"tender/{project.name}.pdf",
+            )
+        else:
+            version = document.versions[0]
     requirement = Requirement(
         project=project,
         source_version=version,

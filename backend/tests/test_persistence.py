@@ -547,6 +547,7 @@ def test_company_document_can_be_reused_without_project(db_session: Session) -> 
         project=None,
         role=DocumentRole.COMPANY,
         display_name="营业执照.pdf",
+        company_content_sha256="a" * 64,
     )
 
     db_session.add(document)
@@ -694,6 +695,7 @@ def test_focused_repository_reads(db_session: Session) -> None:
     company_document = Document(
         role=DocumentRole.COMPANY,
         display_name="公司资料.pdf",
+        company_content_sha256="b" * 64,
     )
     db_session.add_all([requirement, company_document])
     db_session.commit()

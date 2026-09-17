@@ -81,9 +81,13 @@ class Document(Base):
     __tablename__ = "documents"
     __table_args__ = (
         CheckConstraint(
-            "project_id IS NOT NULL OR role = 'company'",
-            name="ck_documents_project_or_company",
+            "(role = 'company' AND project_id IS NULL AND company_content_sha256 IS NOT NULL) "
+            "OR (role IN ('tender', 'proposal') AND project_id IS NOT NULL "
+            "AND company_content_sha256 IS NULL)",
+            name="ck_documents_identity",
         ),
+        UniqueConstraint("project_id", "role", name="uq_documents_project_role"),
+        UniqueConstraint("company_content_sha256", name="uq_documents_company_content"),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
@@ -91,6 +95,7 @@ class Document(Base):
         ForeignKey("bid_projects.id", ondelete="CASCADE"), index=True
     )
     role: Mapped[str] = mapped_column(String(30), nullable=False)
+    company_content_sha256: Mapped[str | None] = mapped_column(String(64))
     display_name: Mapped[str] = mapped_column(String(500), nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         UTCDateTime(), default=utc_now, nullable=False
@@ -108,6 +113,7 @@ class DocumentVersion(Base):
         UniqueConstraint(
             "document_id", "version_number", name="uq_document_versions_number"
         ),
+        UniqueConstraint("document_id", "sha256", name="uq_document_versions_digest"),
         CheckConstraint("version_number >= 1", name="ck_document_versions_number_positive"),
     )
 

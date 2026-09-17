@@ -1,17 +1,22 @@
+import sqlite3
+import time
+import unicodedata
 from dataclasses import dataclass
 from pathlib import Path
 from threading import RLock
+from typing import BinaryIO
 
 from sqlalchemy import func, select
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.orm import selectinload
 
 from app.db import GuardedSession
-from app.documents.storage import safe_storage_path, sha256_bytes, store_content
+from app.documents.storage import ensure_content, safe_storage_path, store_content
 from app.domain.enums import DocumentRole
 from app.persistence.models import BidProject, Document, DocumentVersion
 
 _INGESTION_LOCK = RLock()
+_MAX_DB_ATTEMPTS = 5
 
 
 @dataclass(frozen=True, slots=True)
@@ -26,8 +31,20 @@ class ProjectNotFoundError(Exception):
 
 
 def safe_display_name(original_name: str, suffix: str) -> str:
-    basename = original_name.replace("\\", "/").rsplit("/", 1)[-1].strip()
-    return basename or f"upload{suffix}"
+    normalized = unicodedata.normalize("NFKC", original_name)
+    basename = normalized.replace("\\", "/").rsplit("/", 1)[-1]
+    basename = "".join(
+        char
+        for char in basename
+        if unicodedata.category(char) not in {"Cc", "Cf"}
+        or char in {"\u200c", "\u200d"}
+    ).strip()
+    if not basename:
+        return f"upload{suffix}"
+    if len(basename) > 500:
+        # Preserve both the beginning and the human-readable tail/extension.
+        basename = basename[:249] + "…" + basename[-250:]
+    return basename
 
 
 def ingest_project_document(
@@ -36,149 +53,172 @@ def ingest_project_document(
     project_id: int,
     role: DocumentRole,
     original_name: str,
-    content: bytes,
+    reader: BinaryIO,
+    *,
+    digest: str,
+    size: int,
 ) -> IngestionResult:
-    with _INGESTION_LOCK:
-        if session.get(BidProject, project_id) is None:
-            raise ProjectNotFoundError
-        document = session.scalar(
-            select(Document).where(
-                Document.project_id == project_id,
-                Document.role == role.value,
-            )
-        )
-        return _ingest(
-            session,
-            storage_root,
-            document=document,
-            project_id=project_id,
-            role=role,
-            original_name=original_name,
-            content=content,
-        )
+    return _ingest(
+        session,
+        storage_root,
+        project_id=project_id,
+        role=role,
+        original_name=original_name,
+        reader=reader,
+        digest=digest,
+        size=size,
+    )
 
 
 def ingest_company_document(
     session: GuardedSession,
     storage_root: Path,
     original_name: str,
-    content: bytes,
+    reader: BinaryIO,
+    *,
+    digest: str,
+    size: int,
 ) -> IngestionResult:
-    digest = sha256_bytes(content)
-    safe_storage_path(storage_root, digest, original_name)
-    with _INGESTION_LOCK:
-        existing = session.execute(
-            select(Document, DocumentVersion)
-            .join(DocumentVersion, DocumentVersion.document_id == Document.id)
-            .where(Document.role == DocumentRole.COMPANY.value)
-            .where(DocumentVersion.sha256 == digest)
-            .order_by(Document.id, DocumentVersion.version_number)
-        ).first()
-        if existing is not None:
-            return IngestionResult(existing[0], existing[1], created=False)
-        return _ingest(
-            session,
-            storage_root,
-            document=None,
-            project_id=None,
-            role=DocumentRole.COMPANY,
-            original_name=original_name,
-            content=content,
+    return _ingest(
+        session,
+        storage_root,
+        project_id=None,
+        role=DocumentRole.COMPANY,
+        original_name=original_name,
+        reader=reader,
+        digest=digest,
+        size=size,
+    )
+
+
+def _find_document(
+    session: GuardedSession, project_id: int | None, role: DocumentRole, digest: str
+) -> Document | None:
+    if role == DocumentRole.COMPANY:
+        return session.scalar(
+            select(Document).where(Document.company_content_sha256 == digest)
         )
+    if session.get(BidProject, project_id) is None:
+        raise ProjectNotFoundError
+    return session.scalar(
+        select(Document).where(
+            Document.project_id == project_id,
+            Document.role == role.value,
+        )
+    )
+
+
+def _find_version(
+    session: GuardedSession, document: Document | None, digest: str
+) -> DocumentVersion | None:
+    if document is None:
+        return None
+    return session.scalar(
+        select(DocumentVersion).where(
+            DocumentVersion.document_id == document.id,
+            DocumentVersion.sha256 == digest,
+        )
+    )
+
+
+def _sqlite_busy(error: OperationalError) -> bool:
+    code = getattr(error.orig, "sqlite_errorcode", None)
+    return (
+        isinstance(error.orig, sqlite3.OperationalError)
+        and isinstance(code, int)
+        and (code & 0xFF in {sqlite3.SQLITE_BUSY, sqlite3.SQLITE_LOCKED})
+    )
 
 
 def _ingest(
     session: GuardedSession,
     storage_root: Path,
     *,
-    document: Document | None,
     project_id: int | None,
     role: DocumentRole,
     original_name: str,
-    content: bytes,
+    reader: BinaryIO,
+    digest: str,
+    size: int,
 ) -> IngestionResult:
-    digest = sha256_bytes(content)
-    target = safe_storage_path(storage_root, digest, original_name)
-    if document is not None:
-        existing_version = session.scalar(
-            select(DocumentVersion)
-            .where(DocumentVersion.document_id == document.id)
-            .where(DocumentVersion.sha256 == digest)
-            .order_by(DocumentVersion.version_number)
-        )
-        if existing_version is not None:
-            return IngestionResult(document, existing_version, created=False)
-
-    created_file = False
+    safe_storage_path(storage_root, digest, original_name)
+    target: Path | None = None
     try:
-        target, created_file = store_content(
-            storage_root,
-            digest,
-            original_name,
-            content,
-        )
-        if document is None:
-            document = Document(
-                project_id=project_id,
-                role=role.value,
-                display_name=safe_display_name(original_name, target.suffix),
-            )
-            session.add(document)
-            session.flush()
-        next_version = (
-            session.scalar(
-                select(func.max(DocumentVersion.version_number)).where(
-                    DocumentVersion.document_id == document.id
+        for attempt in range(_MAX_DB_ATTEMPTS):
+            try:
+                # This lock reduces contention within one worker. Database unique
+                # constraints and retry/re-read provide correctness across workers.
+                with _INGESTION_LOCK:
+                    document = _find_document(session, project_id, role, digest)
+                    version = _find_version(session, document, digest)
+                    if document is not None and version is not None:
+                        result = IngestionResult(document, version, created=False)
+                    elif target is not None:
+                        if document is None:
+                            document = Document(
+                                project_id=project_id,
+                                role=role.value,
+                                company_content_sha256=digest
+                                if role == DocumentRole.COMPANY
+                                else None,
+                                display_name=safe_display_name(
+                                    original_name, target.suffix
+                                ),
+                            )
+                            session.add(document)
+                            session.flush()
+                        next_version = (
+                            session.scalar(
+                                select(func.max(DocumentVersion.version_number)).where(
+                                    DocumentVersion.document_id == document.id
+                                )
+                            )
+                            or 0
+                        ) + 1
+                        version = DocumentVersion(
+                            document=document,
+                            version_number=next_version,
+                            sha256=digest,
+                            storage_path=str(target),
+                            parse_status="pending",
+                        )
+                        session.add(version)
+                        session.commit()
+                        result = IngestionResult(document, version, created=True)
+                    else:
+                        result = None
+                        # Do not hold a database transaction while publishing bytes.
+                        session.rollback()
+
+                if result is not None:
+                    # Every reuse, including conflict recovery, verifies the actual
+                    # stored path and restores missing content from the fresh upload.
+                    ensure_content(
+                        storage_root,
+                        Path(result.version.storage_path),
+                        digest,
+                        reader,
+                        size,
+                    )
+                    return result
+                target, _ = store_content(
+                    storage_root, digest, original_name, reader, size
                 )
-            )
-            or 0
-        ) + 1
-        version = DocumentVersion(
-            document=document,
-            version_number=next_version,
-            sha256=digest,
-            storage_path=str(target),
-            parse_status="pending",
-        )
-        session.add(version)
-        session.commit()
-        session.refresh(document)
-        session.refresh(version)
-        return IngestionResult(document, version, created=True)
-    except IntegrityError:
-        session.rollback()
-        recovered = session.execute(
-            select(Document, DocumentVersion)
-            .join(DocumentVersion, DocumentVersion.document_id == Document.id)
-            .where(DocumentVersion.sha256 == digest)
-            .where(Document.role == role.value)
-            .where(Document.project_id == project_id)
-            .order_by(Document.id, DocumentVersion.version_number)
-        ).first()
-        if recovered is not None:
-            return IngestionResult(recovered[0], recovered[1], created=False)
-        _remove_unreferenced_file(session, target, created_file)
-        raise
+            except (IntegrityError, OperationalError) as error:
+                session.rollback()
+                if (
+                    attempt == _MAX_DB_ATTEMPTS - 1
+                    or isinstance(error, OperationalError)
+                    and not _sqlite_busy(error)
+                ):
+                    raise
+                time.sleep(0.01 * 2**attempt)
+        raise RuntimeError("Document ingestion retries exhausted")
     except Exception:
         session.rollback()
-        _remove_unreferenced_file(session, target, created_file)
+        # Never delete published content here. Another worker may have committed
+        # a reference to it; safe orphans can be collected separately later.
         raise
-
-
-def _remove_unreferenced_file(
-    session: GuardedSession,
-    target: Path,
-    created_file: bool,
-) -> None:
-    if not created_file:
-        return
-    reference_count = session.scalar(
-        select(func.count())
-        .select_from(DocumentVersion)
-        .where(DocumentVersion.storage_path == str(target))
-    )
-    if reference_count == 0:
-        target.unlink(missing_ok=True)
 
 
 def list_project_documents(
