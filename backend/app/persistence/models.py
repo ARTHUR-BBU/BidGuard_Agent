@@ -1,0 +1,341 @@
+from __future__ import annotations
+
+import hashlib
+import unicodedata
+from datetime import UTC, datetime
+from typing import Any
+
+from sqlalchemy import (
+    JSON,
+    Boolean,
+    CheckConstraint,
+    DateTime,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+)
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+
+from app.db import Base
+
+
+def utc_now() -> datetime:
+    return datetime.now(UTC)
+
+
+def _normalize_fingerprint_part(value: object) -> str:
+    normalized = unicodedata.normalize("NFKC", str(value))
+    return " ".join(normalized.split()).casefold()
+
+
+def _requirement_fingerprint(context: Any) -> str:
+    parameters = context.get_current_parameters()
+    kind = _normalize_fingerprint_part(parameters["kind"])
+    text = _normalize_fingerprint_part(parameters["text"])
+    return hashlib.sha256(f"{kind}\n{text}".encode()).hexdigest()
+
+
+class BidProject(Base):
+    __tablename__ = "bid_projects"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    name: Mapped[str] = mapped_column(String(300), nullable=False)
+    deadline_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, nullable=False
+    )
+
+    documents: Mapped[list[Document]] = relationship(
+        back_populates="project", cascade="all, delete-orphan", passive_deletes=True
+    )
+    requirements: Mapped[list[Requirement]] = relationship(
+        back_populates="project", cascade="all, delete-orphan", passive_deletes=True
+    )
+    review_runs: Mapped[list[ReviewRun]] = relationship(
+        back_populates="project", cascade="all, delete-orphan", passive_deletes=True
+    )
+    audit_events: Mapped[list[AuditEvent]] = relationship(
+        back_populates="project", cascade="all, delete-orphan", passive_deletes=True
+    )
+    review_jobs: Mapped[list[ReviewJob]] = relationship(
+        back_populates="project", cascade="all, delete-orphan", passive_deletes=True
+    )
+
+
+class Document(Base):
+    __tablename__ = "documents"
+    __table_args__ = (
+        CheckConstraint(
+            "project_id IS NOT NULL OR role = 'company'",
+            name="ck_documents_project_or_company",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    project_id: Mapped[int | None] = mapped_column(
+        ForeignKey("bid_projects.id", ondelete="CASCADE"), index=True
+    )
+    role: Mapped[str] = mapped_column(String(30), nullable=False)
+    display_name: Mapped[str] = mapped_column(String(500), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, nullable=False
+    )
+
+    project: Mapped[BidProject | None] = relationship(back_populates="documents")
+    versions: Mapped[list[DocumentVersion]] = relationship(
+        back_populates="document", cascade="all, delete-orphan", passive_deletes=True
+    )
+
+
+class DocumentVersion(Base):
+    __tablename__ = "document_versions"
+    __table_args__ = (
+        UniqueConstraint(
+            "document_id", "version_number", name="uq_document_versions_number"
+        ),
+        CheckConstraint("version_number >= 1", name="ck_document_versions_number_positive"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    document_id: Mapped[int] = mapped_column(
+        ForeignKey("documents.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    version_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    sha256: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    storage_path: Mapped[str] = mapped_column(String(1000), nullable=False)
+    parse_status: Mapped[str] = mapped_column(
+        String(40), default="pending", nullable=False
+    )
+    uploaded_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, nullable=False
+    )
+
+    document: Mapped[Document] = relationship(back_populates="versions")
+    chunks: Mapped[list[DocumentChunk]] = relationship(
+        back_populates="document_version",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+
+
+class DocumentChunk(Base):
+    __tablename__ = "document_chunks"
+    __table_args__ = (
+        UniqueConstraint(
+            "document_version_id", "chunk_index", name="uq_document_chunks_index"
+        ),
+        CheckConstraint(
+            "page_number IS NULL OR page_number >= 1",
+            name="ck_document_chunks_page_positive",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    document_version_id: Mapped[int] = mapped_column(
+        ForeignKey("document_versions.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    chunk_index: Mapped[int] = mapped_column(Integer, nullable=False)
+    page_number: Mapped[int | None] = mapped_column(Integer)
+    section_path: Mapped[str | None] = mapped_column(String(500))
+    text: Mapped[str] = mapped_column(Text, nullable=False)
+
+    document_version: Mapped[DocumentVersion] = relationship(back_populates="chunks")
+
+
+class Requirement(Base):
+    __tablename__ = "requirements"
+    __table_args__ = (
+        CheckConstraint(
+            "source_page IS NULL OR source_page >= 1",
+            name="ck_requirements_source_page_positive",
+        ),
+        CheckConstraint(
+            "length(fingerprint) = 64", name="ck_requirements_fingerprint_length"
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    project_id: Mapped[int] = mapped_column(
+        ForeignKey("bid_projects.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    source_version_id: Mapped[int] = mapped_column(
+        ForeignKey("document_versions.id"), nullable=False, index=True
+    )
+    source_page: Mapped[int | None] = mapped_column(Integer)
+    source_section: Mapped[str | None] = mapped_column(String(500))
+    source_quote: Mapped[str] = mapped_column(Text, nullable=False)
+    text: Mapped[str] = mapped_column(Text, nullable=False)
+    kind: Mapped[str] = mapped_column(String(30), nullable=False)
+    mandatory: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    fingerprint: Mapped[str] = mapped_column(
+        String(64), default=_requirement_fingerprint, nullable=False, index=True
+    )
+    active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+
+    project: Mapped[BidProject] = relationship(back_populates="requirements")
+    source_version: Mapped[DocumentVersion] = relationship()
+    assessments: Mapped[list[Assessment]] = relationship(
+        back_populates="requirement", cascade="all, delete-orphan", passive_deletes=True
+    )
+    action_items: Mapped[list[ActionItem]] = relationship(
+        back_populates="requirement", cascade="all, delete-orphan", passive_deletes=True
+    )
+    decisions: Mapped[list[Decision]] = relationship(
+        back_populates="requirement", cascade="all, delete-orphan", passive_deletes=True
+    )
+
+
+class ReviewRun(Base):
+    __tablename__ = "review_runs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    project_id: Mapped[int] = mapped_column(
+        ForeignKey("bid_projects.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    status: Mapped[str] = mapped_column(String(40), nullable=False)
+    stage: Mapped[str] = mapped_column(String(80), nullable=False)
+    model_provider: Mapped[str] = mapped_column(String(80), nullable=False)
+    model_name: Mapped[str] = mapped_column(String(200), nullable=False)
+    resumable_requirement_id: Mapped[int | None] = mapped_column(
+        ForeignKey("requirements.id", ondelete="SET NULL")
+    )
+    started_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, nullable=False
+    )
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    project: Mapped[BidProject] = relationship(back_populates="review_runs")
+    assessments: Mapped[list[Assessment]] = relationship(
+        back_populates="review_run", cascade="all, delete-orphan", passive_deletes=True
+    )
+
+
+class Assessment(Base):
+    __tablename__ = "assessments"
+    __table_args__ = (
+        UniqueConstraint(
+            "requirement_id", "review_run_id", name="uq_assessments_requirement_run"
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    requirement_id: Mapped[int] = mapped_column(
+        ForeignKey("requirements.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    review_run_id: Mapped[int] = mapped_column(
+        ForeignKey("review_runs.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    evidence_state: Mapped[str] = mapped_column(String(30), nullable=False)
+    severity: Mapped[str] = mapped_column(String(30), nullable=False)
+    display_status: Mapped[str] = mapped_column(String(40), nullable=False)
+    needs_confirmation: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    reasoning: Mapped[str] = mapped_column(Text, nullable=False)
+    recommendation: Mapped[str] = mapped_column(Text, nullable=False)
+    current: Mapped[bool] = mapped_column(
+        Boolean, default=True, nullable=False, index=True
+    )
+
+    requirement: Mapped[Requirement] = relationship(back_populates="assessments")
+    review_run: Mapped[ReviewRun] = relationship(back_populates="assessments")
+    evidence_links: Mapped[list[EvidenceLink]] = relationship(
+        back_populates="assessment", cascade="all, delete-orphan", passive_deletes=True
+    )
+
+
+class EvidenceLink(Base):
+    __tablename__ = "evidence_links"
+    __table_args__ = (
+        CheckConstraint(
+            "page_number IS NULL OR page_number >= 1",
+            name="ck_evidence_links_page_positive",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    assessment_id: Mapped[int] = mapped_column(
+        ForeignKey("assessments.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    document_version_id: Mapped[int] = mapped_column(
+        ForeignKey("document_versions.id"), nullable=False, index=True
+    )
+    page_number: Mapped[int | None] = mapped_column(Integer)
+    section_path: Mapped[str | None] = mapped_column(String(500))
+    quote: Mapped[str] = mapped_column(Text, nullable=False)
+    purpose: Mapped[str] = mapped_column(String(40), nullable=False)
+    valid: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False, index=True)
+
+    assessment: Mapped[Assessment] = relationship(back_populates="evidence_links")
+    document_version: Mapped[DocumentVersion] = relationship()
+
+
+class ActionItem(Base):
+    __tablename__ = "action_items"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    requirement_id: Mapped[int] = mapped_column(
+        ForeignKey("requirements.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    description: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(String(40), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, nullable=False
+    )
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    requirement: Mapped[Requirement] = relationship(back_populates="action_items")
+
+
+class Decision(Base):
+    __tablename__ = "decisions"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    requirement_id: Mapped[int] = mapped_column(
+        ForeignKey("requirements.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    decision: Mapped[str] = mapped_column(String(80), nullable=False)
+    explanation: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, nullable=False
+    )
+
+    requirement: Mapped[Requirement] = relationship(back_populates="decisions")
+
+
+class AuditEvent(Base):
+    __tablename__ = "audit_events"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    project_id: Mapped[int] = mapped_column(
+        ForeignKey("bid_projects.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    event_type: Mapped[str] = mapped_column(String(100), nullable=False)
+    payload: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, nullable=False
+    )
+
+    project: Mapped[BidProject] = relationship(back_populates="audit_events")
+
+
+class ReviewJob(Base):
+    __tablename__ = "review_jobs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    project_id: Mapped[int] = mapped_column(
+        ForeignKey("bid_projects.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    status: Mapped[str] = mapped_column(String(40), nullable=False)
+    stage: Mapped[str] = mapped_column(String(80), nullable=False)
+    error: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, onupdate=utc_now, nullable=False
+    )
+
+    project: Mapped[BidProject] = relationship(back_populates="review_jobs")
