@@ -11,7 +11,6 @@ from app.domain.status_rules import calculate_display_status
         (True, EvidenceState.PARTIAL, Severity.WARNING, False, DisplayStatus.NEEDS_EVIDENCE),
         (False, EvidenceState.PARTIAL, Severity.OPPORTUNITY, False, DisplayStatus.OPTIMIZE),
         (True, EvidenceState.MATCHED, Severity.NONE, False, DisplayStatus.SATISFIED),
-        (True, EvidenceState.UNCERTAIN, Severity.WARNING, True, DisplayStatus.NEEDS_CONFIRMATION),
     ],
 )
 def test_calculate_display_status(
@@ -32,12 +31,43 @@ def test_calculate_display_status(
     )
 
 
-def test_missing_mandatory_evidence_is_never_satisfied() -> None:
-    result = calculate_display_status(
+@pytest.mark.parametrize("severity", [Severity.NONE, Severity.OPPORTUNITY])
+def test_missing_mandatory_evidence_is_high_risk(severity: Severity) -> None:
+    assert calculate_display_status(
         mandatory=True,
         evidence=EvidenceState.MISSING,
-        severity=Severity.NONE,
+        severity=severity,
         needs_confirmation=False,
-    )
+    ) is DisplayStatus.HIGH_RISK
 
-    assert result is not DisplayStatus.SATISFIED
+
+@pytest.mark.parametrize(
+    ("mandatory", "evidence", "severity", "needs_confirmation"),
+    [
+        (True, EvidenceState.UNCERTAIN, Severity.WARNING, False),
+        (False, EvidenceState.MATCHED, Severity.WARNING, True),
+        (True, EvidenceState.MISSING, Severity.CRITICAL, True),
+        (True, EvidenceState.UNCERTAIN, Severity.CRITICAL, False),
+    ],
+)
+def test_confirmation_status_overrides_other_status_rules(
+    mandatory: bool,
+    evidence: EvidenceState,
+    severity: Severity,
+    needs_confirmation: bool,
+) -> None:
+    assert calculate_display_status(
+        mandatory=mandatory,
+        evidence=evidence,
+        severity=severity,
+        needs_confirmation=needs_confirmation,
+    ) is DisplayStatus.NEEDS_CONFIRMATION
+
+
+def test_critical_partial_opportunity_is_high_risk() -> None:
+    assert calculate_display_status(
+        mandatory=False,
+        evidence=EvidenceState.PARTIAL,
+        severity=Severity.CRITICAL,
+        needs_confirmation=False,
+    ) is DisplayStatus.HIGH_RISK
