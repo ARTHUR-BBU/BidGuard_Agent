@@ -1,12 +1,12 @@
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta, timezone
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import DateTime, create_engine, inspect, select
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy import create_engine, func, inspect, select, text, update
+from sqlalchemy.exc import IntegrityError, StatementError
 from sqlalchemy.orm import Session
 
-from app.db import Base
+from app.db import Base, UTCDateTime, build_engine
 from app.domain.enums import (
     DisplayStatus,
     DocumentRole,
@@ -29,6 +29,7 @@ from app.persistence.models import (
     Requirement,
     ReviewJob,
     ReviewRun,
+    calculate_requirement_fingerprint,
 )
 from app.persistence.repositories import (
     get_document_version,
@@ -52,6 +53,16 @@ EXPECTED_TABLES = {
     "review_jobs",
     "review_runs",
 }
+
+
+def test_fingerprint_calculation_is_stable_for_normalized_identity() -> None:
+    assert calculate_requirement_fingerprint(
+        RequirementKind.SUBSTANTIAL,
+        "  提供签字盖章的授权委托书  ",
+    ) == calculate_requirement_fingerprint(
+        "SUBSTANTIAL",
+        "提供签字盖章的授权委托书",
+    )
 
 
 def make_project_graph() -> tuple[BidProject, DocumentVersion, Requirement]:
@@ -115,8 +126,74 @@ def test_requirement_generates_stable_nonempty_fingerprint(db_session: Session) 
     assert first.fingerprint != third.fingerprint
 
 
+def test_explicit_fingerprint_is_replaced_with_calculated_identity(
+    db_session: Session,
+) -> None:
+    _project, _version, requirement = make_project_graph()
+    requirement.fingerprint = "z" * 64
+    db_session.add(requirement)
+    db_session.commit()
+
+    expected = calculate_requirement_fingerprint(requirement.kind, requirement.text)
+    assert requirement.fingerprint == expected
+    assert requirement.fingerprint != "z" * 64
+
+
+@pytest.mark.parametrize(
+    ("attribute", "new_value"),
+    [
+        ("text", "被静默修改的要求"),
+        ("kind", RequirementKind.COMMERCIAL),
+        ("fingerprint", "b" * 64),
+    ],
+)
+def test_persisted_requirement_identity_is_immutable(
+    db_session: Session,
+    attribute: str,
+    new_value: object,
+) -> None:
+    _project, _version, requirement = make_project_graph()
+    db_session.add(requirement)
+    db_session.commit()
+
+    setattr(requirement, attribute, new_value)
+
+    with pytest.raises(ValueError, match="identity is immutable"):
+        db_session.commit()
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {"text": "bulk text change"},
+        {"kind": RequirementKind.COMMERCIAL},
+    ],
+)
+def test_bulk_dml_cannot_change_requirement_identity(
+    db_session: Session,
+    changes: dict[str, object],
+) -> None:
+    _project, _version, requirement = make_project_graph()
+    db_session.add(requirement)
+    db_session.commit()
+
+    with pytest.raises(ValueError, match="bulk DML"):
+        db_session.execute(
+            update(Requirement).where(Requirement.id == requirement.id).values(**changes)
+        )
+
+
 def test_metadata_contains_exactly_the_bidguard_tables() -> None:
     assert set(Base.metadata.tables) == EXPECTED_TABLES
+
+
+def test_metadata_has_stable_constraint_naming_convention() -> None:
+    assert set(Base.metadata.naming_convention) >= {"pk", "fk", "ix", "uq", "ck"}
+    for table in Base.metadata.tables.values():
+        assert table.primary_key.name is not None
+        assert all(constraint.name is not None for constraint in table.foreign_key_constraints)
+        assert all(constraint.name is not None for constraint in table.constraints)
+        assert all(index.name is not None for index in table.indexes)
 
 
 @pytest.mark.parametrize(
@@ -207,15 +284,22 @@ def test_company_document_can_be_reused_without_project(db_session: Session) -> 
 def test_relationships_are_bidirectional_and_source_version_is_exact(
     db_session: Session,
 ) -> None:
-    project, version, requirement = make_project_graph()
+    _project, _version, requirement = make_project_graph()
     db_session.add(requirement)
     db_session.commit()
+    requirement_id = requirement.id
+    db_session.expire_all()
 
-    assert version.document.project is project
-    assert version.document in project.documents
-    assert version in version.document.versions
-    assert requirement.project is project
-    assert requirement.source_version is version
+    loaded_requirement = db_session.get(Requirement, requirement_id)
+
+    assert loaded_requirement is not None
+    assert loaded_requirement.source_version.document.project_id == loaded_requirement.project_id
+    assert [item.id for item in loaded_requirement.project.documents] == [
+        loaded_requirement.source_version.document_id
+    ]
+    assert [item.id for item in loaded_requirement.source_version.document.versions] == [
+        loaded_requirement.source_version_id
+    ]
 
 
 def test_database_generated_ids_and_utc_default_strategy(db_session: Session) -> None:
@@ -227,8 +311,8 @@ def test_database_generated_ids_and_utc_default_strategy(db_session: Session) ->
     generated_at = created_at_column.default.arg(None)
 
     assert project.id >= 1
-    assert isinstance(created_at_column.type, DateTime)
-    assert created_at_column.type.timezone is True
+    assert isinstance(created_at_column.type, UTCDateTime)
+    assert created_at_column.type.impl.timezone is True
     assert generated_at.utcoffset() == timedelta(0)
 
 
@@ -357,3 +441,201 @@ def test_application_lifespan_bootstraps_schema(tmp_path, monkeypatch) -> None:
 
     assert set(inspect(bootstrap_engine).get_table_names()) == EXPECTED_TABLES
     bootstrap_engine.dispose()
+
+
+def test_build_engine_enables_sqlite_foreign_keys() -> None:
+    sqlite_engine = build_engine("sqlite://")
+
+    with sqlite_engine.connect() as connection:
+        foreign_keys = connection.scalar(text("PRAGMA foreign_keys"))
+
+    sqlite_engine.dispose()
+    assert foreign_keys == 1
+
+
+def test_sqlite_rejects_invalid_foreign_key() -> None:
+    sqlite_engine = build_engine("sqlite://")
+    Base.metadata.create_all(sqlite_engine)
+
+    with Session(sqlite_engine) as session:
+        session.add(
+            Document(
+                project_id=999_999,
+                role=DocumentRole.TENDER,
+                display_name="missing-project.pdf",
+            )
+        )
+        with pytest.raises(IntegrityError):
+            session.commit()
+
+    sqlite_engine.dispose()
+
+
+def test_deleting_project_cascades_complete_project_graph() -> None:
+    sqlite_engine = build_engine("sqlite://")
+    Base.metadata.create_all(sqlite_engine)
+    model_types = (
+        BidProject,
+        Document,
+        DocumentVersion,
+        DocumentChunk,
+        Requirement,
+        ReviewRun,
+        Assessment,
+        EvidenceLink,
+        ActionItem,
+        Decision,
+        AuditEvent,
+        ReviewJob,
+    )
+
+    with Session(sqlite_engine) as session:
+        project, version, requirement = make_project_graph()
+        run = ReviewRun(
+            project=project,
+            status=ReviewRunStatus.COMPLETED,
+            stage="complete",
+            model_provider="test",
+            model_name="test-model",
+        )
+        assessment = Assessment(
+            requirement=requirement,
+            review_run=run,
+            evidence_state=EvidenceState.MATCHED,
+            severity=Severity.NONE,
+            display_status=DisplayStatus.SATISFIED,
+            needs_confirmation=False,
+            reasoning="complete",
+            recommendation="none",
+        )
+        session.add_all(
+            [
+                DocumentChunk(document_version=version, chunk_index=0, text="chunk"),
+                EvidenceLink(
+                    assessment=assessment,
+                    document_version=version,
+                    quote="evidence",
+                    purpose="support",
+                ),
+                ActionItem(
+                    requirement=requirement,
+                    description="done",
+                    status="completed",
+                ),
+                Decision(
+                    requirement=requirement,
+                    decision="accept",
+                    explanation="verified",
+                ),
+                AuditEvent(project=project, event_type="completed", payload={}),
+                ReviewJob(project=project, status="completed", stage="complete"),
+            ]
+        )
+        session.commit()
+        project_id = project.id
+
+    with Session(sqlite_engine) as session:
+        persisted_project = session.get(BidProject, project_id)
+        assert persisted_project is not None
+        session.delete(persisted_project)
+        session.commit()
+
+    with Session(sqlite_engine) as session:
+        remaining = {
+            model.__tablename__: session.scalar(select(func.count()).select_from(model))
+            for model in model_types
+        }
+
+    sqlite_engine.dispose()
+    assert remaining == {model.__tablename__: 0 for model in model_types}
+
+
+def test_all_model_datetimes_round_trip_as_utc_in_new_session() -> None:
+    sqlite_engine = build_engine("sqlite://")
+    Base.metadata.create_all(sqlite_engine)
+    china_time = timezone(timedelta(hours=8))
+    supplied_time = datetime(2030, 1, 2, 9, 30, tzinfo=china_time)
+
+    with Session(sqlite_engine) as session:
+        project, version, requirement = make_project_graph()
+        project.deadline_at = supplied_time
+        run = ReviewRun(
+            project=project,
+            status=ReviewRunStatus.COMPLETED,
+            stage="complete",
+            model_provider="test",
+            model_name="test-model",
+            completed_at=supplied_time,
+        )
+        action = ActionItem(
+            requirement=requirement,
+            description="done",
+            status="completed",
+            completed_at=supplied_time,
+        )
+        decision = Decision(
+            requirement=requirement,
+            decision="accept",
+            explanation="verified",
+        )
+        audit = AuditEvent(project=project, event_type="completed", payload={})
+        job = ReviewJob(project=project, status="completed", stage="complete")
+        session.add_all([run, action, decision, audit, job])
+        session.commit()
+        persisted_ids = {
+            "project": project.id,
+            "version": version.id,
+            "run": run.id,
+            "action": action.id,
+            "decision": decision.id,
+            "audit": audit.id,
+            "job": job.id,
+        }
+
+    with Session(sqlite_engine) as session:
+        loaded_project = session.get(BidProject, persisted_ids["project"])
+        loaded_version = session.get(DocumentVersion, persisted_ids["version"])
+        loaded_run = session.get(ReviewRun, persisted_ids["run"])
+        loaded_action = session.get(ActionItem, persisted_ids["action"])
+        loaded_decision = session.get(Decision, persisted_ids["decision"])
+        loaded_audit = session.get(AuditEvent, persisted_ids["audit"])
+        loaded_job = session.get(ReviewJob, persisted_ids["job"])
+        assert loaded_project is not None
+        assert loaded_version is not None
+        assert loaded_run is not None
+        assert loaded_action is not None
+        assert loaded_decision is not None
+        assert loaded_audit is not None
+        assert loaded_job is not None
+        loaded_times = [
+            loaded_project.created_at,
+            loaded_project.deadline_at,
+            loaded_version.document.created_at,
+            loaded_version.uploaded_at,
+            loaded_run.started_at,
+            loaded_run.completed_at,
+            loaded_action.created_at,
+            loaded_action.completed_at,
+            loaded_decision.created_at,
+            loaded_audit.created_at,
+            loaded_job.created_at,
+            loaded_job.updated_at,
+        ]
+
+        assert all(value is not None for value in loaded_times)
+        assert all(value.utcoffset() == timedelta(0) for value in loaded_times if value)
+        assert loaded_project.deadline_at == datetime(2030, 1, 2, 1, 30, tzinfo=UTC)
+
+    sqlite_engine.dispose()
+
+
+def test_naive_datetime_is_rejected_on_write(db_session: Session) -> None:
+    db_session.add(
+        BidProject(
+            name="naive time",
+            deadline_at=datetime(2030, 1, 2, 9, 30),  # noqa: DTZ001
+        )
+    )
+
+    with pytest.raises(StatementError, match="timezone-aware"):
+        db_session.commit()

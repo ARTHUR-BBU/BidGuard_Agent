@@ -9,16 +9,26 @@ from sqlalchemy import (
     JSON,
     Boolean,
     CheckConstraint,
-    DateTime,
     ForeignKey,
     Integer,
     String,
     Text,
     UniqueConstraint,
+    event,
+    inspect,
 )
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.engine import Connection
+from sqlalchemy.orm import (
+    Mapped,
+    Mapper,
+    ORMExecuteState,
+    Session,
+    mapped_column,
+    relationship,
+)
+from sqlalchemy.sql.dml import Update
 
-from app.db import Base
+from app.db import Base, UTCDateTime
 
 
 def utc_now() -> datetime:
@@ -30,11 +40,15 @@ def _normalize_fingerprint_part(value: object) -> str:
     return " ".join(normalized.split()).casefold()
 
 
+def calculate_requirement_fingerprint(kind: object, text: object) -> str:
+    normalized_kind = _normalize_fingerprint_part(kind)
+    normalized_text = _normalize_fingerprint_part(text)
+    return hashlib.sha256(f"{normalized_kind}\n{normalized_text}".encode()).hexdigest()
+
+
 def _requirement_fingerprint(context: Any) -> str:
     parameters = context.get_current_parameters()
-    kind = _normalize_fingerprint_part(parameters["kind"])
-    text = _normalize_fingerprint_part(parameters["text"])
-    return hashlib.sha256(f"{kind}\n{text}".encode()).hexdigest()
+    return calculate_requirement_fingerprint(parameters["kind"], parameters["text"])
 
 
 class BidProject(Base):
@@ -42,9 +56,9 @@ class BidProject(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     name: Mapped[str] = mapped_column(String(300), nullable=False)
-    deadline_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    deadline_at: Mapped[datetime | None] = mapped_column(UTCDateTime())
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=utc_now, nullable=False
+        UTCDateTime(), default=utc_now, nullable=False
     )
 
     documents: Mapped[list[Document]] = relationship(
@@ -80,7 +94,7 @@ class Document(Base):
     role: Mapped[str] = mapped_column(String(30), nullable=False)
     display_name: Mapped[str] = mapped_column(String(500), nullable=False)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=utc_now, nullable=False
+        UTCDateTime(), default=utc_now, nullable=False
     )
 
     project: Mapped[BidProject | None] = relationship(back_populates="documents")
@@ -109,7 +123,7 @@ class DocumentVersion(Base):
         String(40), default="pending", nullable=False
     )
     uploaded_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=utc_now, nullable=False
+        UTCDateTime(), default=utc_now, nullable=False
     )
 
     document: Mapped[Document] = relationship(back_populates="versions")
@@ -163,7 +177,7 @@ class Requirement(Base):
         ForeignKey("bid_projects.id", ondelete="CASCADE"), nullable=False, index=True
     )
     source_version_id: Mapped[int] = mapped_column(
-        ForeignKey("document_versions.id"), nullable=False, index=True
+        ForeignKey("document_versions.id", ondelete="CASCADE"), nullable=False, index=True
     )
     source_page: Mapped[int | None] = mapped_column(Integer)
     source_section: Mapped[str | None] = mapped_column(String(500))
@@ -204,9 +218,9 @@ class ReviewRun(Base):
         ForeignKey("requirements.id", ondelete="SET NULL")
     )
     started_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=utc_now, nullable=False
+        UTCDateTime(), default=utc_now, nullable=False
     )
-    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    completed_at: Mapped[datetime | None] = mapped_column(UTCDateTime())
 
     project: Mapped[BidProject] = relationship(back_populates="review_runs")
     assessments: Mapped[list[Assessment]] = relationship(
@@ -260,7 +274,7 @@ class EvidenceLink(Base):
         ForeignKey("assessments.id", ondelete="CASCADE"), nullable=False, index=True
     )
     document_version_id: Mapped[int] = mapped_column(
-        ForeignKey("document_versions.id"), nullable=False, index=True
+        ForeignKey("document_versions.id", ondelete="CASCADE"), nullable=False, index=True
     )
     page_number: Mapped[int | None] = mapped_column(Integer)
     section_path: Mapped[str | None] = mapped_column(String(500))
@@ -282,9 +296,9 @@ class ActionItem(Base):
     description: Mapped[str] = mapped_column(Text, nullable=False)
     status: Mapped[str] = mapped_column(String(40), nullable=False)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=utc_now, nullable=False
+        UTCDateTime(), default=utc_now, nullable=False
     )
-    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    completed_at: Mapped[datetime | None] = mapped_column(UTCDateTime())
 
     requirement: Mapped[Requirement] = relationship(back_populates="action_items")
 
@@ -299,7 +313,7 @@ class Decision(Base):
     decision: Mapped[str] = mapped_column(String(80), nullable=False)
     explanation: Mapped[str] = mapped_column(Text, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=utc_now, nullable=False
+        UTCDateTime(), default=utc_now, nullable=False
     )
 
     requirement: Mapped[Requirement] = relationship(back_populates="decisions")
@@ -315,7 +329,7 @@ class AuditEvent(Base):
     event_type: Mapped[str] = mapped_column(String(100), nullable=False)
     payload: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=utc_now, nullable=False
+        UTCDateTime(), default=utc_now, nullable=False
     )
 
     project: Mapped[BidProject] = relationship(back_populates="audit_events")
@@ -332,10 +346,50 @@ class ReviewJob(Base):
     stage: Mapped[str] = mapped_column(String(80), nullable=False)
     error: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=utc_now, nullable=False
+        UTCDateTime(), default=utc_now, nullable=False
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=utc_now, onupdate=utc_now, nullable=False
+        UTCDateTime(), default=utc_now, onupdate=utc_now, nullable=False
     )
 
     project: Mapped[BidProject] = relationship(back_populates="review_jobs")
+
+
+@event.listens_for(Requirement, "before_insert")
+def _set_requirement_fingerprint(
+    _mapper: Mapper[Requirement],
+    _connection: Connection,
+    target: Requirement,
+) -> None:
+    target.fingerprint = calculate_requirement_fingerprint(target.kind, target.text)
+
+
+@event.listens_for(Requirement, "before_update")
+def _protect_requirement_identity(
+    _mapper: Mapper[Requirement],
+    _connection: Connection,
+    target: Requirement,
+) -> None:
+    state = inspect(target)
+    identity_fields = ("kind", "text", "fingerprint")
+    if any(state.attrs[field].history.has_changes() for field in identity_fields):
+        raise ValueError(
+            "Requirement identity is immutable; create a new requirement and "
+            "deactivate the old one"
+        )
+
+
+@event.listens_for(Session, "do_orm_execute")
+def _protect_requirement_bulk_identity(execute_state: ORMExecuteState) -> None:
+    statement = execute_state.statement
+    if execute_state.bind_mapper is not Requirement.__mapper__ or not isinstance(
+        statement, Update
+    ):
+        return
+    updated_fields = {
+        getattr(column, "key", str(column)) for column in (statement._values or {})
+    }
+    if {"kind", "text", "fingerprint"} & updated_fields:
+        raise ValueError(
+            "Requirement identity fields cannot be changed with bulk DML"
+        )
