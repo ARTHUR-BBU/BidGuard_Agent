@@ -1,4 +1,32 @@
+from collections.abc import Iterator
+
+import pytest
+
 from app.settings import get_settings
+
+SETTINGS_ENV_VARS = (
+    "APP_NAME",
+    "DATABASE_URL",
+    "STORAGE_ROOT",
+    "MODEL_PROVIDER",
+    "EXTRACTION_MODEL",
+    "REVIEW_MODEL",
+    "MAX_AGENT_TURNS",
+    "MAX_TOOL_CALLS",
+)
+
+
+@pytest.fixture(autouse=True)
+def isolate_settings_defaults(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> Iterator[None]:
+    for variable in SETTINGS_ENV_VARS:
+        monkeypatch.delenv(variable, raising=False)
+    monkeypatch.chdir(tmp_path)
+    get_settings.cache_clear()
+    yield
+    get_settings.cache_clear()
 
 
 def test_settings_expose_safe_defaults() -> None:
