@@ -222,3 +222,18 @@ def test_project_input_trims_name_and_rejects_invalid_values(client: TestClient)
     assert naive_deadline.status_code == 422
     assert offset_deadline.status_code == 201
     assert offset_deadline.json()["deadline_at"] == "2026-10-01T09:00:00Z"
+
+
+@pytest.mark.parametrize(
+    "deadline_at",
+    [1790845200, 1790845200.0, "1790845200", True, False, "", "not-an-iso-date"],
+)
+def test_project_deadline_rejects_non_iso_json_values(
+    client: TestClient, deadline_at: object
+) -> None:
+    response = client.post(
+        "/api/projects",
+        json={"name": "invalid deadline", "deadline_at": deadline_at},
+    )
+
+    assert response.status_code == 422

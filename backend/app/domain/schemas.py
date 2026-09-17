@@ -72,14 +72,28 @@ class ProjectCreate(BaseModel):
     def strip_name(cls, value: object) -> object:
         return _strip_string(value)
 
-    @field_validator("deadline_at")
+    @field_validator("deadline_at", mode="before")
     @classmethod
-    def normalize_deadline_to_utc(cls, value: datetime | None) -> datetime | None:
+    def normalize_deadline_to_utc(cls, value: object) -> datetime | None:
         if value is None:
             return None
-        if value.tzinfo is None or value.utcoffset() is None:
+        if isinstance(value, datetime):
+            parsed = value
+        elif isinstance(value, str):
+            iso_value = value.strip()
+            if iso_value.endswith("Z"):
+                iso_value = f"{iso_value[:-1]}+00:00"
+            try:
+                parsed = datetime.fromisoformat(iso_value)
+            except ValueError as error:
+                raise ValueError("deadline_at must be an ISO-8601 datetime") from error
+        else:
+            raise ValueError(  # noqa: TRY004 - Pydantic converts this to HTTP 422.
+                "deadline_at must be an ISO-8601 datetime string"
+            )
+        if parsed.tzinfo is None or parsed.utcoffset() is None:
             raise ValueError("deadline_at must include a timezone offset")
-        return value.astimezone(UTC)
+        return parsed.astimezone(UTC)
 
 
 class ProjectResponse(BaseModel):
