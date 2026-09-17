@@ -123,3 +123,32 @@ class ProjectResponse(BaseModel):
     deadline_at: datetime | None
     created_at: datetime
     status_counts: StatusCounts
+
+
+class DocumentVersionResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    version_number: int
+    sha256: str
+    parse_status: str
+    uploaded_at: datetime
+
+
+class DocumentResponse(BaseModel):
+    id: int
+    project_id: int | None
+    role: str
+    display_name: str
+    created_at: datetime
+    versions: list[DocumentVersionResponse]
+
+
+class DocumentUploadResponse(BaseModel):
+    document_id: int
+    version_id: int
+    version_number: int
+    sha256: str
+    parse_status: str
+    uploaded_at: datetime
+    created: bool
