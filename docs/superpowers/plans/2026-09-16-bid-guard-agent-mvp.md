@@ -816,7 +816,7 @@ git commit -m "feat: add versioned document uploads"
 - Create: `backend/tests/fixtures/sample-proposal.docx`
 - Create: `backend/tests/test_parsers.py`
 
-- [ ] **Step 1: Write parser contract tests**
+- [x] **Step 1: Write parser contract tests**
 
 Define the parser result in `domain/schemas.py`:
 
@@ -836,21 +836,21 @@ class ParsedDocument(BaseModel):
 
 Tests must assert PDF page numbers survive, DOCX heading paths survive, blank pages are omitted, and a PDF with fewer than 30 visible characters per page returns `needs_ocr=True` rather than fabricated text.
 
-- [ ] **Step 2: Run tests and verify failure**
+- [x] **Step 2: Run tests and verify failure**
 
 Run: `uv run pytest tests/test_parsers.py -v`
 
 Expected: FAIL because parsers are absent.
 
-- [ ] **Step 3: Implement parsers**
+- [x] **Step 3: Implement parsers**
 
 Use `pypdf.PdfReader` for PDFs and `python-docx` for DOCX. Normalize whitespace but do not remove section numbers. Limit chunks to approximately 3,000 characters with 300-character overlap, and never mix text from different PDF pages in one chunk.
 
-- [ ] **Step 4: Persist parsed chunks**
+- [x] **Step 4: Persist parsed chunks**
 
 Update `services/ingestion.py` so parse success replaces chunks only for the current `DocumentVersion`. On failure, preserve the uploaded file and write an error message to the version record.
 
-- [ ] **Step 5: Run tests and commit**
+- [x] **Step 5: Run tests and commit**
 
 ```powershell
 uv run pytest tests/test_parsers.py -v

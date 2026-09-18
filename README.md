@@ -2,7 +2,7 @@
 
 BidGuard Agent 面向参与政府采购或企业招标的中小型软件与 IT 服务公司，帮助团队先把投标文件中的合规要点、风险和待确认事项看清楚。
 
-现在已具备可验证的前后端骨架、投标项目 API、安全的版本化文件上传、可追溯数据模型和旧 SQLite 自动迁移。PDF/DOCX 解析、检索、Agent 核查、人工确认与完整 UI 仍按计划逐步开发，尚未调用真实模型证明业务审核质量。
+现在已具备可验证的前后端骨架、投标项目 API、安全的版本化文件上传、可追溯数据模型、旧 SQLite 自动迁移，以及带来源位置和覆盖范围声明的 PDF/DOCX 解析。检索、Agent 核查、人工确认与完整 UI 仍按计划逐步开发；项目尚未调用真实模型，也尚未证明真实业务审核质量。
 
 ## 项目治理总纲
 
@@ -10,6 +10,7 @@ BidGuard 的设计、开发、模型调用、测试和评审受以下两份正�
 
 - [BidGuard Constitution / BidGuard 项目宪法](docs/governance/bidguard-constitution.md)
 - [LLM 在 BidGuard 中的定位、权限与分阶段开发规范](docs/governance/llm-position-authority-phased-development.md)
+- [开发日记（面向非技术项目所有者的第二本账）](docs/development-diary.md)
 
 简要原则：招标原文定义要求，当前证据支撑事实，LLM 负责理解与质疑，程序负责验证与制衡，人工负责承诺与最终提交。任何扩大模型权限、改变证据或正式状态定义、削弱人工确认与审计门禁的修改，都必须显式进行 `Constitution impact` 审查。
 
