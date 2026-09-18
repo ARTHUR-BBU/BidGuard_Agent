@@ -353,6 +353,7 @@ def _finalize_parse_attempt(
             chunk_index=chunk.chunk_index,
             page_number=chunk.page_number,
             section_path=chunk.section_path,
+            section_ordinal=chunk.section_ordinal,
             text=chunk.text,
         )
         for chunk in parsed.chunks

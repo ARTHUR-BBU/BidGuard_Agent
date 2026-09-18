@@ -160,6 +160,10 @@ class DocumentChunk(Base):
             name="ck_document_chunks_page_positive",
         ),
         CheckConstraint(
+            "section_ordinal IS NULL OR section_ordinal >= 1",
+            name="ck_document_chunks_section_ordinal_positive",
+        ),
+        CheckConstraint(
             "chunk_index >= 0",
             name="ck_document_chunks_index_nonnegative",
         ),
@@ -178,6 +182,7 @@ class DocumentChunk(Base):
     chunk_index: Mapped[int] = mapped_column(Integer, nullable=False)
     page_number: Mapped[int | None] = mapped_column(Integer)
     section_path: Mapped[str | None] = mapped_column(String(500))
+    section_ordinal: Mapped[int | None] = mapped_column(Integer)
     text: Mapped[str] = mapped_column(Text, nullable=False)
 
     document_version: Mapped[DocumentVersion] = relationship(back_populates="chunks")

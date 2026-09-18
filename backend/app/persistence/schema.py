@@ -17,8 +17,8 @@ _IDENTITY_INSERT_TRIGGER = "trg_documents_identity_insert"
 _IDENTITY_UPDATE_TRIGGER = "trg_documents_identity_update"
 _VERSION_SIZE_INSERT_TRIGGER = "trg_document_versions_size_insert"
 _VERSION_SIZE_UPDATE_TRIGGER = "trg_document_versions_size_update"
-_CHUNK_CONTENT_INSERT_TRIGGER = "trg_document_chunks_content_insert"
-_CHUNK_CONTENT_UPDATE_TRIGGER = "trg_document_chunks_content_update"
+_CHUNK_CONTENT_INSERT_TRIGGER = "trg_document_chunks_content_insert_v2"
+_CHUNK_CONTENT_UPDATE_TRIGGER = "trg_document_chunks_content_update_v2"
 
 
 def _row_ids(connection: Connection, statement: str) -> list[int]:
@@ -104,6 +104,12 @@ def _migration_needed(connection: Connection) -> bool:
         "parse_attempt_started_at",
     }.issubset(version_columns):
         return True
+    chunk_columns = {
+        str(column["name"])
+        for column in inspect(connection).get_columns("document_chunks")
+    }
+    if "section_ordinal" not in chunk_columns:
+        return True
 
     document_uniques = _unique_column_sets(connection, "documents")
     version_uniques = _unique_column_sets(connection, "document_versions")
@@ -120,6 +126,9 @@ def _migration_needed(connection: Connection) -> bool:
     chunk_content_is_enforced = (
         _has_check_fragments(connection, "document_chunks", ("chunk_index", ">= 0"))
         and _has_check_fragments(connection, "document_chunks", ("trim(text)", "> 0"))
+        and _has_check_fragments(
+            connection, "document_chunks", ("section_ordinal", ">= 1")
+        )
     ) or {_CHUNK_CONTENT_INSERT_TRIGGER, _CHUNK_CONTENT_UPDATE_TRIGGER}.issubset(
         trigger_names
     )
@@ -304,7 +313,10 @@ def _install_parser_integrity_triggers(connection: Connection) -> None:
             "document_chunks",
             _CHUNK_CONTENT_INSERT_TRIGGER,
             _CHUNK_CONTENT_UPDATE_TRIGGER,
-            "NEW.chunk_index < 0 OR length(trim(NEW.text)) = 0",
+            (
+                "NEW.chunk_index < 0 OR length(trim(NEW.text)) = 0 "
+                "OR (NEW.section_ordinal IS NOT NULL AND NEW.section_ordinal < 1)"
+            ),
             "valid document chunk content required",
         ),
     )
@@ -359,6 +371,15 @@ def _upgrade_legacy_sqlite(connection: Connection) -> None:
             connection.exec_driver_sql(
                 f"ALTER TABLE document_versions ADD COLUMN {column_name} {column_type}"
             )
+
+    chunk_columns = {
+        str(column["name"])
+        for column in inspect(connection).get_columns("document_chunks")
+    }
+    if "section_ordinal" not in chunk_columns:
+        connection.exec_driver_sql(
+            "ALTER TABLE document_chunks ADD COLUMN section_ordinal INTEGER"
+        )
 
     connection.exec_driver_sql(
         """

@@ -83,11 +83,8 @@ def test_real_docx_fixture_preserves_complete_heading_paths() -> None:
     assert result.failed_pages == []
     assert result.needs_ocr is False
     assert result.total_sections == 3
-    assert result.parsed_sections == [
-        "1 技术要求",
-        "1 技术要求 > 1.1 实施范围",
-        "2 商务要求",
-    ]
+    assert result.parsed_sections == [1, 2, 3]
+    assert [chunk.section_ordinal for chunk in result.chunks] == [1, 2, 3]
 
 
 class _FakePage:
@@ -581,7 +578,7 @@ def test_docx_non_body_story_content_is_not_silently_ignored(tmp_path: Path) -> 
     assert len(story_issues) == 2
     assert all(issue.section_path and "word/" in issue.section_path for issue in story_issues)
     assert result.total_sections == 1
-    assert result.parsed_sections == ["1 正文"]
+    assert result.parsed_sections == [1]
 
 
 def test_all_pdf_page_extraction_failures_are_incomplete_not_empty(
@@ -717,3 +714,27 @@ def test_stale_parsing_lease_is_reclaimed_but_fresh_lease_is_not(
         size=len(content),
     )
     assert calls == [first.version.id]
+
+
+def test_repeated_same_heading_creates_distinct_physical_sections(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "repeated-headings.docx"
+    document = WordDocument()
+    document.add_heading("资格要求", level=1)
+    document.add_paragraph("第一处要求提供营业执照。")
+    document.add_heading("资格要求", level=1)
+    document.add_paragraph("第二处要求提供审计报告。")
+    document.save(str(path))
+
+    result = parse_document(path)
+
+    assert result.total_sections == 2
+    assert result.parsed_sections == [1, 2]
+    assert [chunk.section_path for chunk in result.chunks] == [
+        "资格要求",
+        "资格要求",
+    ]
+    assert [chunk.section_ordinal for chunk in result.chunks] == [1, 2]
+    assert "营业执照" in result.chunks[0].text
+    assert "审计报告" in result.chunks[1].text

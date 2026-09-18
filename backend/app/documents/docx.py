@@ -138,7 +138,8 @@ def parse_docx(path: Path) -> ParsedDocument:
         raise DocumentParseError("invalid_document") from error
 
     heading_stack: list[tuple[int, str]] = []
-    groups: list[tuple[str | None, list[str]]] = []
+    groups: list[tuple[int, str | None, list[str]]] = []
+    current_section_ordinal: int | None = None
     issues = _non_body_story_issues(path, package_names)
     extracted_characters = 0
     for object_index, block in enumerate(document.iter_inner_content()):
@@ -158,18 +159,24 @@ def parse_docx(path: Path) -> ParsedDocument:
                 section_path = " > ".join(
                     heading for _, heading in heading_stack
                 )
+                current_section_ordinal = len(groups) + 1
+                groups.append((current_section_ordinal, section_path, []))
             object_codes = _object_codes(block)
         elif isinstance(block, Table):
             text = _table_text(block)
             object_codes = ["table_structure_not_preserved", *_object_codes(block)]
         else:
             continue
+        if current_section_ordinal is None and (text or object_codes):
+            current_section_ordinal = len(groups) + 1
+            groups.append((current_section_ordinal, section_path, []))
         issue_location = section_path or "$document"
         for code in object_codes:
             issues.append(
                 ParseCoverageIssue(
                     code=code,
                     section_path=issue_location,
+                    section_ordinal=current_section_ordinal,
                     object_index=object_index,
                 )
             )
@@ -178,27 +185,28 @@ def parse_docx(path: Path) -> ParsedDocument:
         extracted_characters += len(text)
         if extracted_characters > MAX_EXTRACTED_TEXT_CHARACTERS:
             raise DocumentParseError("resource_limit_exceeded")
-        if not groups or groups[-1][0] != section_path:
-            groups.append((section_path, []))
-        groups[-1][1].append(text)
+        groups[-1][2].append(text)
 
     chunks: list[ParsedChunk] = []
-    for section_path, texts in groups:
+    parsed_sections: list[int] = []
+    for section_ordinal, section_path, texts in groups:
+        section_had_chunk = False
         for piece in chunk_text(" ".join(texts)):
+            section_had_chunk = True
             chunks.append(
                 ParsedChunk(
                     chunk_index=len(chunks),
                     page_number=None,
                     section_path=section_path,
+                    section_ordinal=section_ordinal,
                     text=piece,
                 )
             )
-    parsed_sections = list(
-        dict.fromkeys(section_path or "$body" for section_path, _texts in groups)
-    )
+        if section_had_chunk:
+            parsed_sections.append(section_ordinal)
     return ParsedDocument(
         chunks=chunks,
         coverage_issues=issues,
-        total_sections=len(parsed_sections),
+        total_sections=len(groups),
         parsed_sections=parsed_sections,
     )

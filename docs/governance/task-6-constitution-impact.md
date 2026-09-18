@@ -16,7 +16,7 @@ Task 6 creates the parsed text and location records that later requirement and e
 
 The immutable uploaded `DocumentVersion` remains the source. Deterministic code verifies its configured storage root, byte length and SHA-256 digest before parsing. Parsers may produce only candidate text chunks, source locations and structured coverage limitations. They do not create Requirements, EvidenceLinks, Assessments or formal display statuses.
 
-Parsed chunks are tied to one document version. PDF chunks retain a page number and never cross page boundaries. DOCX chunks retain only headings that actually occur in the document; they do not invent page numbers or missing headings. A newer parse attempt token prevents an older attempt from overwriting newer results.
+Parsed chunks are tied to one document version. PDF chunks retain a page number and never cross page boundaries. DOCX chunks retain only headings that actually occur in the document; they do not invent page numbers or missing headings. Every physical DOCX heading starts a new section with a stable one-based ordinal, so two different sections with the same displayed heading remain independently locatable. A newer parse attempt token prevents an older attempt from overwriting newer results.
 
 ## Coverage and failure gates
 

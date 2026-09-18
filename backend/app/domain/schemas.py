@@ -22,11 +22,16 @@ class ParseCoverageIssue(BaseModel):
     code: str = Field(min_length=1, max_length=80)
     page_number: int | None = Field(default=None, ge=1)
     section_path: str | None = Field(default=None, min_length=1, max_length=500)
+    section_ordinal: int | None = Field(default=None, ge=1)
     object_index: int | None = Field(default=None, ge=0)
 
     @model_validator(mode="after")
     def require_location(self) -> ParseCoverageIssue:
-        if self.page_number is None and self.section_path is None:
+        if (
+            self.page_number is None
+            and self.section_path is None
+            and self.section_ordinal is None
+        ):
             raise ValueError("coverage issue must identify a page or section")
         return self
 
@@ -35,6 +40,7 @@ class ParsedChunk(BaseModel):
     chunk_index: int = Field(ge=0)
     page_number: int | None = Field(default=None, ge=1)
     section_path: str | None = Field(default=None, min_length=1, max_length=500)
+    section_ordinal: int | None = Field(default=None, ge=1)
     text: str = Field(min_length=1)
 
     @field_validator("text", mode="before")
@@ -52,7 +58,7 @@ class ParsedDocument(BaseModel):
     ocr_pages: list[int] = Field(default_factory=list)
     coverage_issues: list[ParseCoverageIssue] = Field(default_factory=list)
     total_sections: int | None = Field(default=None, ge=0)
-    parsed_sections: list[str] = Field(default_factory=list)
+    parsed_sections: list[int] = Field(default_factory=list)
     needs_ocr: bool = False
 
     @model_validator(mode="after")
@@ -87,8 +93,10 @@ class ParsedDocument(BaseModel):
             raise ValueError("parsed, blank, failed, and OCR pages must not overlap")
         if self.needs_ocr != bool(self.ocr_pages):
             raise ValueError("needs_ocr must reflect ocr_pages")
-        if self.parsed_sections != list(dict.fromkeys(self.parsed_sections)):
-            raise ValueError("parsed_sections must be unique and ordered")
+        if self.parsed_sections != sorted(set(self.parsed_sections)):
+            raise ValueError("parsed_sections must be sorted unique positive ordinals")
+        if any(section < 1 for section in self.parsed_sections):
+            raise ValueError("parsed_sections must be sorted unique positive ordinals")
         if self.total_sections is not None and len(self.parsed_sections) > self.total_sections:
             raise ValueError("parsed_sections cannot exceed total_sections")
         return self
