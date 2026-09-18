@@ -21,6 +21,7 @@ from app.persistence.models import Document, DocumentChunk, DocumentVersion
 _SEARCHABLE_PARSE_STATUSES = ("parsed", "partial_failure")
 _MAX_SEARCH_LIMIT = 100
 _SEARCH_BATCH_SIZE = 256
+_SEARCH_SCOPE_ERROR_CODE = "search_scope_invalid"
 
 # Keep contiguous Chinese phrases together while splitting Latin identifiers
 # and numbers at punctuation.  This is intentionally small and deterministic;
@@ -47,6 +48,12 @@ class SearchResult:
     score: float
     parse_status: str
     coverage_complete: bool
+
+
+class SearchScopeError(ValueError):
+    """Raised when the requested search scope is not owned by the project."""
+
+    code = _SEARCH_SCOPE_ERROR_CODE
 
 
 def tokenize(text: str) -> frozenset[str]:
@@ -86,11 +93,37 @@ def _contains_cjk(term: str) -> bool:
 
 def _allowed_ids(values: Iterable[int]) -> tuple[int, ...]:
     # Preserve caller order only for predictable SQL parameters; ordering of
-    # results is determined by the explicit stable ranking below.
-    return tuple(dict.fromkeys(value for value in values if isinstance(value, int)))
+    # results is determined by the explicit stable ranking below. Invalid IDs
+    # are rejected rather than silently dropped, which keeps the scope fail
+    # closed.
+    values_tuple = tuple(values)
+    if any(
+        not isinstance(value, int) or isinstance(value, bool) or value <= 0
+        for value in values_tuple
+    ):
+        raise SearchScopeError(_SEARCH_SCOPE_ERROR_CODE)
+    return tuple(dict.fromkeys(values_tuple))
+
+
+def _validate_scope(
+    session: GuardedSession,
+    project_id: int,
+    allowed_ids: Collection[int],
+) -> None:
+    owned_ids = set(
+        session.scalars(
+            select(DocumentVersion.id)
+            .join(Document, Document.id == DocumentVersion.document_id)
+            .where(Document.project_id == project_id)
+            .where(DocumentVersion.id.in_(allowed_ids))
+        )
+    )
+    if owned_ids != set(allowed_ids):
+        raise SearchScopeError(_SEARCH_SCOPE_ERROR_CODE)
 
 
 def _search_statement(
+    project_id: int,
     allowed_ids: Collection[int],
     roles: Collection[str] | None,
 ) -> Select[tuple[object, ...]]:
@@ -107,12 +140,14 @@ def _search_statement(
             DocumentChunk.section_path.label("section_path"),
             DocumentChunk.text.label("text"),
             DocumentVersion.parse_status.label("parse_status"),
+            DocumentVersion.parse_coverage.label("parse_coverage"),
         )
         .join(
             DocumentVersion,
             DocumentVersion.id == DocumentChunk.document_version_id,
         )
         .join(Document, Document.id == DocumentVersion.document_id)
+        .where(Document.project_id == project_id)
         .where(DocumentChunk.document_version_id.in_(allowed_ids))
         .where(DocumentVersion.parse_status.in_(_SEARCHABLE_PARSE_STATUSES))
         .order_by(DocumentChunk.id)
@@ -126,29 +161,39 @@ def search_chunks(
     session: GuardedSession,
     query: str,
     *,
+    project_id: int,
     allowed_document_version_ids: Iterable[int],
     document_roles: Iterable[str] | None = None,
     limit: int = 10,
 ) -> list[SearchResult]:
     """Search only authorized parsed versions and return stable top candidates.
 
-    ``allowed_document_version_ids`` is an exact authorization boundary.  This
-    function deliberately does not infer the latest/current version; callers
-    must pass the versions selected by the current project/review context.
+    ``project_id`` is a server-side authorization boundary, and every supplied
+    version id must belong to it. ``allowed_document_version_ids`` is an
+    additional exact scope within that project. This function deliberately does
+    not infer the latest/current version; callers must pass the versions
+    selected by the current project/review context.
     ``partial_failure`` versions are searchable, but every result is marked
     ``coverage_complete=False`` so a later gate can refuse a completeness claim.
     Pending, parsing, failed, and needs-OCR versions are excluded.
     """
 
-    if not isinstance(limit, int) or isinstance(limit, bool) or not 1 <= limit <= _MAX_SEARCH_LIMIT:
+    if (
+        not isinstance(limit, int)
+        or isinstance(limit, bool)
+        or not 1 <= limit <= _MAX_SEARCH_LIMIT
+    ):
         raise ValueError(f"limit must be between 1 and {_MAX_SEARCH_LIMIT}")
-
-    query_terms = tokenize(query)
-    if not query_terms:
-        return []
 
     allowed_ids = _allowed_ids(allowed_document_version_ids)
     if not allowed_ids:
+        return []
+    if not isinstance(project_id, int) or isinstance(project_id, bool) or project_id <= 0:
+        raise SearchScopeError(_SEARCH_SCOPE_ERROR_CODE)
+    _validate_scope(session, project_id, allowed_ids)
+
+    query_terms = tokenize(query)
+    if not query_terms:
         return []
 
     roles = None
@@ -160,7 +205,7 @@ def search_chunks(
     # The heap bounds in-memory result retention to ``limit`` while SQLAlchemy
     # streams chunks in batches.  We never materialize all document text.
     best: list[tuple[float, int, int, int, SearchResult]] = []
-    statement = _search_statement(allowed_ids, roles)
+    statement = _search_statement(project_id, allowed_ids, roles)
     for row in session.execute(statement).mappings().yield_per(_SEARCH_BATCH_SIZE):
         text = str(row["text"])
         score = overlap_score(query, text)
@@ -187,7 +232,9 @@ def search_chunks(
             text=text,
             score=score,
             parse_status=str(row["parse_status"]),
-            coverage_complete=str(row["parse_status"]) == "parsed",
+            coverage_complete=_coverage_complete(
+                str(row["parse_status"]), row["parse_coverage"]
+            ),
         )
         # Negated tie-breakers make the heap root the least desirable item;
         # final output is sorted using the human-readable ascending keys.
@@ -210,3 +257,26 @@ def search_chunks(
             ),
         )
     ]
+
+
+def _coverage_complete(parse_status: str, parse_coverage: object) -> bool:
+    """Defensively derive completeness from the persisted Task 6 coverage."""
+
+    if parse_status != "parsed" or not isinstance(parse_coverage, dict):
+        return False
+    required = {"coverage_issues", "failed_pages", "ocr_pages", "needs_ocr"}
+    if not required.issubset(parse_coverage):
+        return False
+    if parse_coverage["needs_ocr"] is not False:
+        return False
+    if parse_coverage["failed_pages"] or parse_coverage["ocr_pages"]:
+        return False
+    issues = parse_coverage["coverage_issues"]
+    if not isinstance(issues, list):
+        return False
+    # Task 6 deliberately treats a known blank page as complete coverage. Any
+    # other issue means the candidate must remain partial/unverified.
+    return all(
+        isinstance(issue, dict) and issue.get("code") == "blank_page"
+        for issue in issues
+    )

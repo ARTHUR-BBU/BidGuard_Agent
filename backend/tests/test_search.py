@@ -2,7 +2,13 @@ from __future__ import annotations
 
 import pytest
 
-from app.documents.search import SearchResult, overlap_score, search_chunks, tokenize
+from app.documents.search import (
+    SearchResult,
+    SearchScopeError,
+    overlap_score,
+    search_chunks,
+    tokenize,
+)
 from app.persistence.models import BidProject, Document, DocumentChunk, DocumentVersion
 
 
@@ -76,6 +82,7 @@ def test_search_returns_traceable_ranked_results_and_role_filter(db_session) -> 
     results = search_chunks(
         db_session,
         "信息系统项目管理师 项目经理",
+        project_id=project.id,
         allowed_document_version_ids=[tender.id],
         document_roles=["tender"],
         limit=10,
@@ -120,6 +127,7 @@ def test_search_is_strictly_scoped_to_allowed_versions_and_does_not_infer_latest
     old_results = search_chunks(
         db_session,
         "交付周期",
+        project_id=project.id,
         allowed_document_version_ids=[old.id],
     )
     assert [item.document_version_id for item in old_results] == [old.id]
@@ -127,6 +135,7 @@ def test_search_is_strictly_scoped_to_allowed_versions_and_does_not_infer_latest
     current_results = search_chunks(
         db_session,
         "交付周期",
+        project_id=project.id,
         allowed_document_version_ids=[current.id],
     )
     assert [item.document_version_id for item in current_results] == [current.id]
@@ -166,6 +175,7 @@ def test_search_excludes_unparsed_versions_and_marks_partial_coverage(db_session
     results = search_chunks(
         db_session,
         "项目经理",
+        project_id=project.id,
         allowed_document_version_ids=[pending.id, partial.id, failed.id],
     )
 
@@ -193,12 +203,14 @@ def test_search_discards_zero_scores_applies_limit_and_has_stable_ties(db_sessio
     first = search_chunks(
         db_session,
         "项目经理",
+        project_id=project.id,
         allowed_document_version_ids=[version.id],
         limit=1,
     )
     second = search_chunks(
         db_session,
         "项目经理",
+        project_id=project.id,
         allowed_document_version_ids=[version.id],
         limit=10,
     )
@@ -215,19 +227,134 @@ def test_search_rejects_invalid_limit(db_session, limit: int) -> None:
         search_chunks(
             db_session,
             "项目经理",
+            project_id=1,
             allowed_document_version_ids=[],
             limit=limit,
         )
 
 
 def test_search_empty_query_and_empty_scope_do_not_read_documents(db_session) -> None:
-    assert search_chunks(
-        db_session,
-        "   ",
-        allowed_document_version_ids=[999],
-    ) == []
+    with pytest.raises(SearchScopeError):
+        search_chunks(
+            db_session,
+            "   ",
+            project_id=1,
+            allowed_document_version_ids=[999],
+        )
     assert search_chunks(
         db_session,
         "项目经理",
+        project_id=1,
         allowed_document_version_ids=[],
     ) == []
+
+
+def test_search_rejects_missing_and_cross_project_version_ids(db_session) -> None:
+    first_project = BidProject(name="First project")
+    second_project = BidProject(name="Second project")
+    db_session.add_all([first_project, second_project])
+    first_version = _version(
+        first_project,
+        role="proposal",
+        number=1,
+        chunks=[("项目经理。", 1, "团队")],
+    )
+    second_version = _version(
+        second_project,
+        role="proposal",
+        number=1,
+        chunks=[("项目经理。", 1, "团队")],
+    )
+    db_session.add_all([first_version, second_version])
+    db_session.commit()
+
+    with pytest.raises(SearchScopeError) as cross_project:
+        search_chunks(
+            db_session,
+            "项目经理",
+            project_id=first_project.id,
+            allowed_document_version_ids=[second_version.id],
+        )
+    assert cross_project.value.code == "search_scope_invalid"
+
+    with pytest.raises(SearchScopeError) as missing:
+        search_chunks(
+            db_session,
+            "项目经理",
+            project_id=first_project.id,
+            allowed_document_version_ids=[first_version.id, 99999],
+        )
+    assert missing.value.code == "search_scope_invalid"
+
+
+def test_search_coverage_is_defensive_and_blank_pages_are_complete(db_session) -> None:
+    project = BidProject(name="Coverage semantics project")
+    db_session.add(project)
+    document = Document(project=project, role="tender", display_name="tender.pdf")
+    complete = _version(
+        project,
+        role="tender",
+        number=1,
+        document=document,
+        chunks=[("项目经理要求。", 1, "要求")],
+    )
+    complete.parse_coverage = {
+        "coverage_issues": [{"code": "blank_page", "page_number": 2}],
+        "failed_pages": [],
+        "ocr_pages": [],
+        "needs_ocr": False,
+    }
+    failed_coverage = _version(
+        project,
+        role="tender",
+        number=2,
+        document=document,
+        chunks=[("项目经理要求。", 1, "要求")],
+    )
+    failed_coverage.parse_coverage = {
+        "coverage_issues": [],
+        "failed_pages": [2],
+        "ocr_pages": [],
+        "needs_ocr": False,
+    }
+    missing_coverage = _version(
+        project,
+        role="tender",
+        number=3,
+        document=document,
+        chunks=[("项目经理要求。", 1, "要求")],
+    )
+    partial = _version(
+        project,
+        role="tender",
+        number=4,
+        document=document,
+        status="partial_failure",
+        chunks=[("项目经理要求。", 1, "要求")],
+    )
+    partial.parse_coverage = {
+        "coverage_issues": [{"code": "unrecognized_table", "page_number": 2}],
+        "failed_pages": [],
+        "ocr_pages": [],
+        "needs_ocr": False,
+    }
+    db_session.add_all([complete, failed_coverage, missing_coverage, partial])
+    db_session.commit()
+
+    results = search_chunks(
+        db_session,
+        "项目经理",
+        project_id=project.id,
+        allowed_document_version_ids=[
+            complete.id,
+            failed_coverage.id,
+            missing_coverage.id,
+            partial.id,
+        ],
+    )
+
+    by_version = {result.document_version_id: result for result in results}
+    assert by_version[complete.id].coverage_complete is True
+    assert by_version[failed_coverage.id].coverage_complete is False
+    assert by_version[missing_coverage.id].coverage_complete is False
+    assert by_version[partial.id].coverage_complete is False
