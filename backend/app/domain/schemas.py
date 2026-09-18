@@ -114,6 +114,17 @@ class ParsedDocument(BaseModel):
             section > self.total_sections for section in chunk_sections
         ):
             raise ValueError("chunk section ordinal cannot exceed total_sections")
+        issue_sections = {
+            issue.section_ordinal
+            for issue in self.coverage_issues
+            if issue.section_ordinal is not None
+        }
+        if issue_sections and self.total_sections is None:
+            raise ValueError("sectioned coverage issues require total_sections")
+        if self.total_sections is not None and any(
+            section > self.total_sections for section in issue_sections
+        ):
+            raise ValueError("coverage issue section ordinal cannot exceed total_sections")
         return self
 
 

@@ -71,6 +71,28 @@ def test_parser_contract_rejects_impossible_section_ordinals() -> None:
     with pytest.raises(ValueError, match="require total_sections"):
         ParsedDocument(chunks=[chunk], parsed_sections=[2])
 
+    issue = ParseCoverageIssue(
+        code="section_failed",
+        section_path="资格要求",
+        section_ordinal=2,
+    )
+    with pytest.raises(ValueError, match="issues require total_sections"):
+        ParsedDocument(chunks=[], coverage_issues=[issue])
+    with pytest.raises(ValueError, match="cannot exceed total_sections"):
+        ParsedDocument(
+            chunks=[],
+            total_sections=1,
+            coverage_issues=[issue],
+        )
+
+    unresolved_issue = ParsedDocument(
+        chunks=[],
+        total_sections=2,
+        parsed_sections=[],
+        coverage_issues=[issue],
+    )
+    assert unresolved_issue.coverage_issues[0].section_ordinal == 2
+
 
 def test_docx_body_without_headings_is_one_physical_section(tmp_path: Path) -> None:
     path = tmp_path / "body-only.docx"
