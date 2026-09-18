@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import threading
+from datetime import UTC, datetime, timedelta
 from io import BytesIO
 from pathlib import Path
 
 import pytest
 from docx import Document as WordDocument
+from pypdf import PdfWriter
+from pypdf.errors import LimitReachedError
 from sqlalchemy import func, select
 
 from app.db import Base, GuardedSession, build_engine
@@ -79,6 +82,12 @@ def test_real_docx_fixture_preserves_complete_heading_paths() -> None:
     assert "1.1" in implementation.text
     assert result.failed_pages == []
     assert result.needs_ocr is False
+    assert result.total_sections == 3
+    assert result.parsed_sections == [
+        "1 技术要求",
+        "1 技术要求 > 1.1 实施范围",
+        "2 商务要求",
+    ]
 
 
 class _FakePage:
@@ -102,6 +111,7 @@ class _FakePage:
 class _FakeReader:
     def __init__(self, _path: Path, pages: list[_FakePage]) -> None:
         self.pages = pages
+        self.attachment_list: list[object] = []
 
 
 def test_pdf_omits_blank_pages_marks_low_text_and_records_page_failure(
@@ -211,8 +221,8 @@ def test_ingestion_parses_each_version_without_replacing_older_chunks(
             )
         )
     )
-    assert first.version.parse_status == "parsed"
-    assert first.version.parse_error is None
+    assert first.version.parse_status == "partial_failure"
+    assert first.version.parse_error_code == "incomplete_coverage"
     assert first_chunk_ids
 
     docx_bytes = SAMPLE_DOCX.read_bytes()
@@ -310,7 +320,7 @@ def test_failed_reparse_keeps_last_successful_snapshot(
     )
     db_session.refresh(result.version)
 
-    assert result.version.parse_status == "parsed"
+    assert result.version.parse_status == "partial_failure"
     assert result.version.parse_error_code == "parse_failed"
     assert result.version.parse_error == (
         "Latest parse attempt failed; previous parsed content retained"
@@ -338,7 +348,7 @@ def test_repeat_upload_retries_failed_but_does_not_reparse_completed_version(
         digest=digest,
         size=len(content),
     )
-    assert first.version.parse_status == "parsed"
+    assert first.version.parse_status == "partial_failure"
     original = ingestion.parse_document_version
     calls: list[int] = []
 
@@ -374,7 +384,7 @@ def test_repeat_upload_retries_failed_but_does_not_reparse_completed_version(
     )
     assert retried.created is False
     assert calls == [first.version.id]
-    assert retried.version.parse_status == "parsed"
+    assert retried.version.parse_status == "partial_failure"
 
 
 def test_source_path_size_and_digest_are_verified_before_parsing(
@@ -533,3 +543,177 @@ def test_newer_parse_attempt_wins_and_chunks_are_not_mixed(
 def test_parsed_document_coverage_issue_requires_a_location() -> None:
     with pytest.raises(ValueError):
         ParseCoverageIssue(code="image_not_extracted")
+
+
+def test_pdf_embedded_attachment_and_table_capability_are_explicit(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "attachment.pdf"
+    writer = PdfWriter()
+    writer.append(str(SAMPLE_PDF))
+    writer.add_attachment("requirements.xlsx", b"not parsed")
+    with path.open("wb") as output:
+        writer.write(output)
+
+    result = parse_document(path)
+
+    codes = [issue.code for issue in result.coverage_issues]
+    assert "embedded_attachment_not_extracted" in codes
+    assert "pdf_table_detection_unavailable" in codes
+
+
+def test_docx_non_body_story_content_is_not_silently_ignored(tmp_path: Path) -> None:
+    path = tmp_path / "header.docx"
+    document = WordDocument()
+    document.sections[0].header.paragraphs[0].text = "页眉中的项目编号"
+    document.sections[0].footer.paragraphs[0].text = "页脚中的保密说明"
+    document.add_heading("1 正文", level=1)
+    document.add_paragraph("可解析的正文内容。")
+    document.save(str(path))
+
+    result = parse_document(path)
+
+    story_issues = [
+        issue
+        for issue in result.coverage_issues
+        if issue.code == "non_body_story_not_extracted"
+    ]
+    assert len(story_issues) == 2
+    assert all(issue.section_path and "word/" in issue.section_path for issue in story_issues)
+    assert result.total_sections == 1
+    assert result.parsed_sections == ["1 正文"]
+
+
+def test_all_pdf_page_extraction_failures_are_incomplete_not_empty(
+    db_session, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        ingestion,
+        "parse_document",
+        lambda _path: ParsedDocument(
+            chunks=[],
+            total_pages=2,
+            failed_pages=[1, 2],
+            coverage_issues=[
+                ParseCoverageIssue(code="page_extraction_failed", page_number=1),
+                ParseCoverageIssue(code="page_extraction_failed", page_number=2),
+            ],
+        ),
+    )
+    project = BidProject(name="全页失败")
+    db_session.add(project)
+    db_session.commit()
+    content = SAMPLE_PDF.read_bytes()
+
+    result = ingest_project_document(
+        db_session,
+        tmp_path / "uploads",
+        project.id,
+        DocumentRole.TENDER,
+        SAMPLE_PDF.name,
+        BytesIO(content),
+        digest=sha256_bytes(content),
+        size=len(content),
+    )
+
+    assert result.version.parse_status == "failed"
+    assert result.version.parse_error_code == "incomplete_coverage"
+
+
+def test_pdf_input_limit_is_checked_before_reader_construction(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = tmp_path / "oversized.pdf"
+    with path.open("wb") as output:
+        output.truncate(11)
+    monkeypatch.setattr(pdf_parser, "MAX_PDF_INPUT_BYTES", 10)
+    called = False
+
+    def reader_must_not_run(*_args, **_kwargs):
+        nonlocal called
+        called = True
+        raise AssertionError("reader constructed before the input limit gate")
+
+    monkeypatch.setattr(pdf_parser, "PdfReader", reader_must_not_run)
+
+    with pytest.raises(DocumentParseError) as caught:
+        parse_document(path)
+    assert caught.value.code == "resource_limit_exceeded"
+    assert called is False
+
+
+def test_pdf_decompression_limit_is_not_downgraded_to_page_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class LimitedPage(_FakePage):
+        def extract_text(self) -> str:
+            raise LimitReachedError("decompression output limit reached")
+
+    monkeypatch.setattr(
+        pdf_parser,
+        "PdfReader",
+        lambda path, **_kwargs: _FakeReader(path, [LimitedPage()]),
+    )
+    path = tmp_path / "bomb.pdf"
+    path.write_bytes(b"%PDF-reader-monkeypatched")
+
+    with pytest.raises(DocumentParseError) as caught:
+        parse_document(path)
+    assert caught.value.code == "resource_limit_exceeded"
+
+
+def test_stale_parsing_lease_is_reclaimed_but_fresh_lease_is_not(
+    db_session, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    project = BidProject(name="解析租约")
+    db_session.add(project)
+    db_session.commit()
+    storage_root = tmp_path / "uploads"
+    content = SAMPLE_PDF.read_bytes()
+    digest = sha256_bytes(content)
+    first = ingest_project_document(
+        db_session,
+        storage_root,
+        project.id,
+        DocumentRole.TENDER,
+        SAMPLE_PDF.name,
+        BytesIO(content),
+        digest=digest,
+        size=len(content),
+    )
+    calls: list[int] = []
+    original = ingestion.parse_document_version
+
+    def recording_parse(session, version_id: int, root: Path) -> bool:
+        calls.append(version_id)
+        return original(session, version_id, root)
+
+    monkeypatch.setattr(ingestion, "parse_document_version", recording_parse)
+    first.version.parse_status = "parsing"
+    first.version.parse_attempt_started_at = datetime.now(UTC)
+    db_session.commit()
+    ingest_project_document(
+        db_session,
+        storage_root,
+        project.id,
+        DocumentRole.TENDER,
+        SAMPLE_PDF.name,
+        BytesIO(content),
+        digest=digest,
+        size=len(content),
+    )
+    assert calls == []
+
+    first.version.parse_attempt_started_at = datetime.now(UTC) - timedelta(minutes=16)
+    db_session.commit()
+    ingest_project_document(
+        db_session,
+        storage_root,
+        project.id,
+        DocumentRole.TENDER,
+        SAMPLE_PDF.name,
+        BytesIO(content),
+        digest=digest,
+        size=len(content),
+    )
+    assert calls == [first.version.id]

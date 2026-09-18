@@ -136,6 +136,7 @@ class DocumentVersion(Base):
     parse_error: Mapped[str | None] = mapped_column(Text)
     parse_coverage: Mapped[dict[str, Any] | None] = mapped_column(JSON)
     parse_attempt_id: Mapped[str | None] = mapped_column(String(36))
+    parse_attempt_started_at: Mapped[datetime | None] = mapped_column(UTCDateTime())
     uploaded_at: Mapped[datetime] = mapped_column(
         UTCDateTime(), default=utc_now, nullable=False
     )

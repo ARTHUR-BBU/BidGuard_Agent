@@ -3,6 +3,7 @@ import time
 import unicodedata
 import uuid
 from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from threading import RLock
 from typing import BinaryIO
@@ -35,6 +36,7 @@ from app.persistence.models import (
 
 _INGESTION_LOCK = RLock()
 _MAX_DB_ATTEMPTS = 5
+_PARSE_LEASE_TIMEOUT = timedelta(minutes=15)
 
 
 @dataclass(frozen=True, slots=True)
@@ -219,10 +221,18 @@ def _ingest(
                         reader,
                         size,
                     )
+                    stale_parse = (
+                        result.version.parse_status == "parsing"
+                        and (
+                            result.version.parse_attempt_started_at is None
+                            or result.version.parse_attempt_started_at
+                            <= datetime.now(UTC) - _PARSE_LEASE_TIMEOUT
+                        )
+                    )
                     should_parse = result.created or result.version.parse_status in {
                         "pending",
                         "failed",
-                    }
+                    } or stale_parse
                     if result.version.size_bytes is None:
                         result.version.size_bytes = size
                         session.commit()
@@ -277,6 +287,12 @@ def _parse_outcome(
         return "parsed", None, None
     if parsed.needs_ocr:
         return "needs_ocr", "ocr_required", "Document requires OCR"
+    if incomplete:
+        return (
+            "failed",
+            "incomplete_coverage",
+            "Document parsing is incomplete",
+        )
     return "failed", "no_extractable_text", "Document contains no extractable text"
 
 
@@ -324,6 +340,8 @@ def _finalize_parse_attempt(
         current.parse_error = (
             "Latest parse attempt failed; previous parsed content retained"
         )
+        current.parse_attempt_id = None
+        current.parse_attempt_started_at = None
         session.commit()
         return False
     session.execute(
@@ -343,6 +361,8 @@ def _finalize_parse_attempt(
     current.parse_error_code = error_code
     current.parse_error = error_message
     current.parse_coverage = _coverage_payload(parsed)
+    current.parse_attempt_id = None
+    current.parse_attempt_started_at = None
     session.commit()
     return True
 
@@ -372,6 +392,7 @@ def parse_document_version(
             parse_error_code=None,
             parse_error=None,
             parse_attempt_id=attempt_id,
+            parse_attempt_started_at=datetime.now(UTC),
         )
     )
     session.commit()

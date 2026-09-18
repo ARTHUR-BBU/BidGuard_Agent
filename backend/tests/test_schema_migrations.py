@@ -172,6 +172,7 @@ def test_empty_legacy_schema_is_upgraded_and_migration_is_idempotent(
         "parse_error",
         "parse_coverage",
         "parse_attempt_id",
+        "parse_attempt_started_at",
     }.issubset(version_columns)
     assert ("project_id", "role") in _unique_column_sets(legacy_engine, "documents")
     assert ("company_content_sha256",) in _unique_column_sets(

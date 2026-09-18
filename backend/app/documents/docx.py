@@ -4,6 +4,7 @@ import re
 import zipfile
 from pathlib import Path, PurePosixPath
 from typing import Any
+from xml.etree import ElementTree
 
 from docx import Document as WordDocument
 from docx.opc.exceptions import PackageNotFoundError
@@ -23,7 +24,7 @@ _HEADING_PATTERN = re.compile(r"^Heading\s+([1-9][0-9]*)$", re.IGNORECASE)
 _OBJECT_TAGS = {"drawing", "object", "pict", "altChunk"}
 
 
-def _validate_package(path: Path) -> None:
+def _validate_package(path: Path) -> set[str]:
     try:
         with zipfile.ZipFile(path) as archive:
             members = archive.infolist()
@@ -48,10 +49,55 @@ def _validate_package(path: Path) -> None:
                 compressed = max(member.compress_size, 1)
                 if member.file_size / compressed > MAX_DOCX_COMPRESSION_RATIO:
                     raise DocumentParseError("resource_limit_exceeded")
+            return names
     except DocumentParseError:
         raise
     except (OSError, zipfile.BadZipFile) as error:
         raise DocumentParseError("invalid_document") from error
+
+
+def _non_body_story_issues(
+    path: Path, package_names: set[str]
+) -> list[ParseCoverageIssue]:
+    story_names = sorted(
+        name
+        for name in package_names
+        if (
+            name.startswith(("word/header", "word/footer"))
+            and name.endswith(".xml")
+        )
+        or name in {
+            "word/footnotes.xml",
+            "word/endnotes.xml",
+            "word/comments.xml",
+        }
+    )
+    issues: list[ParseCoverageIssue] = []
+    try:
+        with zipfile.ZipFile(path) as archive:
+            for object_index, name in enumerate(story_names):
+                root = ElementTree.fromstring(archive.read(name))
+                meaningful = any(
+                    str(element.tag).rsplit("}", 1)[-1]
+                    in {"t", "tbl", "drawing", "object", "pict", "altChunk"}
+                    and (element.text or "").strip()
+                    for element in root.iter()
+                ) or any(
+                    str(element.tag).rsplit("}", 1)[-1]
+                    in {"tbl", "drawing", "object", "pict", "altChunk"}
+                    for element in root.iter()
+                )
+                if meaningful:
+                    issues.append(
+                        ParseCoverageIssue(
+                            code="non_body_story_not_extracted",
+                            section_path=f"${name}",
+                            object_index=object_index,
+                        )
+                    )
+    except (OSError, zipfile.BadZipFile, ElementTree.ParseError) as error:
+        raise DocumentParseError("invalid_document") from error
+    return issues
 
 
 def _heading_level(paragraph: Paragraph) -> int | None:
@@ -85,7 +131,7 @@ def _table_text(table: Table) -> str:
 
 
 def parse_docx(path: Path) -> ParsedDocument:
-    _validate_package(path)
+    package_names = _validate_package(path)
     try:
         document = WordDocument(str(path))
     except (OSError, PackageNotFoundError, ValueError, zipfile.BadZipFile) as error:
@@ -93,7 +139,7 @@ def parse_docx(path: Path) -> ParsedDocument:
 
     heading_stack: list[tuple[int, str]] = []
     groups: list[tuple[str | None, list[str]]] = []
-    issues: list[ParseCoverageIssue] = []
+    issues = _non_body_story_issues(path, package_names)
     extracted_characters = 0
     for object_index, block in enumerate(document.iter_inner_content()):
         if object_index >= MAX_DOCX_BLOCKS:
@@ -147,4 +193,12 @@ def parse_docx(path: Path) -> ParsedDocument:
                     text=piece,
                 )
             )
-    return ParsedDocument(chunks=chunks, coverage_issues=issues)
+    parsed_sections = list(
+        dict.fromkeys(section_path or "$body" for section_path, _texts in groups)
+    )
+    return ParsedDocument(
+        chunks=chunks,
+        coverage_issues=issues,
+        total_sections=len(parsed_sections),
+        parsed_sections=parsed_sections,
+    )

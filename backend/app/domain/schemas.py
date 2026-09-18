@@ -51,6 +51,8 @@ class ParsedDocument(BaseModel):
     failed_pages: list[int] = Field(default_factory=list)
     ocr_pages: list[int] = Field(default_factory=list)
     coverage_issues: list[ParseCoverageIssue] = Field(default_factory=list)
+    total_sections: int | None = Field(default=None, ge=0)
+    parsed_sections: list[str] = Field(default_factory=list)
     needs_ocr: bool = False
 
     @model_validator(mode="after")
@@ -85,6 +87,10 @@ class ParsedDocument(BaseModel):
             raise ValueError("parsed, blank, failed, and OCR pages must not overlap")
         if self.needs_ocr != bool(self.ocr_pages):
             raise ValueError("needs_ocr must reflect ocr_pages")
+        if self.parsed_sections != list(dict.fromkeys(self.parsed_sections)):
+            raise ValueError("parsed_sections must be unique and ordered")
+        if self.total_sections is not None and len(self.parsed_sections) > self.total_sections:
+            raise ValueError("parsed_sections cannot exceed total_sections")
         return self
 
 

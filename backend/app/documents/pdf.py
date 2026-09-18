@@ -4,8 +4,8 @@ import unicodedata
 from pathlib import Path
 from typing import Any
 
-from pypdf import PdfReader
-from pypdf.errors import PdfReadError
+from pypdf import PdfReader, apply_configuration
+from pypdf.errors import LimitReachedError, PdfReadError
 
 from app.documents.parser import DocumentParseError, chunk_text, normalize_whitespace
 from app.domain.schemas import ParseCoverageIssue, ParsedChunk, ParsedDocument
@@ -14,6 +14,8 @@ MIN_VISIBLE_CHARACTERS = 30
 HEADER_WITH_IMAGE_THRESHOLD = 100
 MAX_PDF_PAGES = 2_000
 MAX_EXTRACTED_TEXT_CHARACTERS = 5_000_000
+MAX_PDF_INPUT_BYTES = 50 * 1024 * 1024
+MAX_PDF_STREAM_OUTPUT_BYTES = 10 * 1024 * 1024
 
 
 def _visible_character_count(text: str) -> int:
@@ -45,20 +47,45 @@ def _page_has_images(page: Any) -> bool:
 
 def parse_pdf(path: Path) -> ParsedDocument:
     try:
-        reader = PdfReader(str(path), strict=False)
-        if getattr(reader, "is_encrypted", False):
-            try:
-                if reader.decrypt("") == 0:
-                    raise DocumentParseError("encrypted_document")
-            except DocumentParseError:
-                raise
-            except Exception as error:
-                raise DocumentParseError("encrypted_document") from error
-        total_pages = len(reader.pages)
+        input_size = path.stat().st_size
+    except OSError as error:
+        raise DocumentParseError("invalid_document") from error
+    if input_size <= 0:
+        raise DocumentParseError("invalid_document")
+    if input_size > MAX_PDF_INPUT_BYTES:
+        raise DocumentParseError("resource_limit_exceeded")
+    try:
+        with apply_configuration(
+            maximum_declared_stream_length=MAX_PDF_STREAM_OUTPUT_BYTES,
+            array_based_stream_maximum_output_length=MAX_PDF_STREAM_OUTPUT_BYTES,
+            jbig2_maximum_output_length=MAX_PDF_STREAM_OUTPUT_BYTES,
+            lzw_maximum_output_length=MAX_PDF_STREAM_OUTPUT_BYTES,
+            run_length_maximum_output_length=MAX_PDF_STREAM_OUTPUT_BYTES,
+            zlib_maximum_output_length=MAX_PDF_STREAM_OUTPUT_BYTES,
+            image_maximum_buffer_size=MAX_PDF_STREAM_OUTPUT_BYTES,
+            page_tree_maximum_entries=MAX_PDF_PAGES,
+            xform_maximum_invocations_per_extraction=1_000,
+        ):
+            return _parse_pdf_with_limits(path)
     except DocumentParseError:
         raise
+    except LimitReachedError as error:
+        raise DocumentParseError("resource_limit_exceeded") from error
     except (OSError, PdfReadError, ValueError) as error:
         raise DocumentParseError("invalid_document") from error
+
+
+def _parse_pdf_with_limits(path: Path) -> ParsedDocument:
+    reader = PdfReader(str(path), strict=False)
+    if getattr(reader, "is_encrypted", False):
+        try:
+            if reader.decrypt("") == 0:
+                raise DocumentParseError("encrypted_document")
+        except DocumentParseError:
+            raise
+        except Exception as error:
+            raise DocumentParseError("encrypted_document") from error
+    total_pages = len(reader.pages)
     if total_pages > MAX_PDF_PAGES:
         raise DocumentParseError("resource_limit_exceeded")
 
@@ -68,12 +95,31 @@ def parse_pdf(path: Path) -> ParsedDocument:
     failed_pages: list[int] = []
     ocr_pages: list[int] = []
     issues: list[ParseCoverageIssue] = []
+    issues.append(
+        ParseCoverageIssue(
+            code="pdf_table_detection_unavailable", section_path="$document"
+        )
+    )
+    try:
+        attachments = list(reader.attachment_list)
+    except (LimitReachedError, OSError, PdfReadError, ValueError) as error:
+        raise DocumentParseError("resource_limit_exceeded") from error
+    for object_index, _attachment in enumerate(attachments):
+        issues.append(
+            ParseCoverageIssue(
+                code="embedded_attachment_not_extracted",
+                section_path="$document",
+                object_index=object_index,
+            )
+        )
     extracted_characters = 0
     for page_number, page in enumerate(reader.pages, start=1):
         try:
             raw_text = page.extract_text() or ""
             normalized = normalize_whitespace(raw_text)
             has_image = _page_has_images(page)
+        except LimitReachedError as error:
+            raise DocumentParseError("resource_limit_exceeded") from error
         except Exception:  # noqa: BLE001 - page plugins can raise arbitrary errors.
             failed_pages.append(page_number)
             issues.append(

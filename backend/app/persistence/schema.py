@@ -101,6 +101,7 @@ def _migration_needed(connection: Connection) -> bool:
         "parse_error",
         "parse_coverage",
         "parse_attempt_id",
+        "parse_attempt_started_at",
     }.issubset(version_columns):
         return True
 
@@ -351,6 +352,7 @@ def _upgrade_legacy_sqlite(connection: Connection) -> None:
         "parse_error": "TEXT",
         "parse_coverage": "JSON",
         "parse_attempt_id": "VARCHAR(36)",
+        "parse_attempt_started_at": "DATETIME",
     }
     for column_name, column_type in missing_version_columns.items():
         if column_name not in version_columns:
