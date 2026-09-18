@@ -260,23 +260,176 @@ def search_chunks(
 
 
 def _coverage_complete(parse_status: str, parse_coverage: object) -> bool:
-    """Defensively derive completeness from the persisted Task 6 coverage."""
+    """Defensively derive completeness from persisted Task 6 coverage.
 
-    if parse_status != "parsed" or not isinstance(parse_coverage, dict):
+    JSON is untrusted persistence, so malformed values must become an
+    incomplete candidate rather than raising during retrieval or being treated
+    as complete. PDFs need a complete physical-page partition; DOCX files need
+    a complete section range. The only coverage issue compatible with a
+    complete result is Task 6's known ``blank_page`` issue, and only when its
+    page is present in a credible PDF page partition.
+    """
+
+    try:
+        if parse_status != "parsed" or not isinstance(parse_coverage, dict):
+            return False
+        if not _valid_common_coverage(parse_coverage):
+            return False
+
+        total_pages = parse_coverage.get("total_pages")
+        total_sections = parse_coverage.get("total_sections")
+        if total_pages is not None and total_sections is not None:
+            return False
+        if total_pages is not None:
+            return _valid_complete_pdf_coverage(parse_coverage, total_pages)
+        if total_sections is not None:
+            return _valid_complete_docx_coverage(parse_coverage, total_sections)
         return False
-    required = {"coverage_issues", "failed_pages", "ocr_pages", "needs_ocr"}
-    if not required.issubset(parse_coverage):
+    except Exception:  # noqa: BLE001 - persisted JSON must fail closed.
         return False
-    if parse_coverage["needs_ocr"] is not False:
+
+
+def _valid_common_coverage(coverage: dict[object, object]) -> bool:
+    required = {"coverage_issues", "needs_ocr"}
+    if not required.issubset(coverage):
         return False
-    if parse_coverage["failed_pages"] or parse_coverage["ocr_pages"]:
+    if not isinstance(coverage["needs_ocr"], bool):
         return False
-    issues = parse_coverage["coverage_issues"]
+    issues = coverage["coverage_issues"]
     if not isinstance(issues, list):
         return False
-    # Task 6 deliberately treats a known blank page as complete coverage. Any
-    # other issue means the candidate must remain partial/unverified.
-    return all(
-        isinstance(issue, dict) and issue.get("code") == "blank_page"
-        for issue in issues
+    for issue in issues:
+        if not isinstance(issue, dict):
+            return False
+        code = issue.get("code")
+        if not isinstance(code, str) or not code.strip():
+            return False
+        for field in ("page_number", "section_ordinal"):
+            value = issue.get(field)
+            if value is not None and (
+                not isinstance(value, int) or isinstance(value, bool) or value < 1
+            ):
+                return False
+        object_index = issue.get("object_index")
+        if object_index is not None and (
+            not isinstance(object_index, int)
+            or isinstance(object_index, bool)
+            or object_index < 0
+        ):
+            return False
+        section_path = issue.get("section_path")
+        if section_path is not None and (
+            not isinstance(section_path, str) or not section_path.strip()
+        ):
+            return False
+        if not any(
+            issue.get(field) is not None
+            for field in ("page_number", "section_ordinal", "section_path")
+        ):
+            return False
+    return True
+
+
+def _valid_int_list(
+    value: object,
+    *,
+    maximum: int | None,
+) -> set[int] | None:
+    if not isinstance(value, list):
+        return None
+    if any(
+        not isinstance(item, int) or isinstance(item, bool) or item < 1
+        for item in value
+    ):
+        return None
+    result = set(value)
+    if len(result) != len(value) or value != sorted(value):
+        return None
+    if maximum is not None and any(item > maximum for item in result):
+        return None
+    return result
+
+
+def _valid_total(value: object) -> int | None:
+    if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+        return None
+    return value
+
+
+def _valid_complete_pdf_coverage(
+    coverage: dict[object, object], total_pages_value: object
+) -> bool:
+    total_pages = _valid_total(total_pages_value)
+    if total_pages is None:
+        return False
+    page_fields = ("parsed_pages", "blank_pages", "failed_pages", "ocr_pages")
+    if not all(field in coverage for field in page_fields):
+        return False
+    page_sets: dict[str, set[int]] = {}
+    for field in page_fields:
+        values = _valid_int_list(coverage[field], maximum=total_pages)
+        if values is None:
+            return False
+        page_sets[field] = values
+    if any(
+        page_sets[left] & page_sets[right]
+        for index, left in enumerate(page_fields)
+        for right in page_fields[index + 1 :]
+    ):
+        return False
+    expected = set(range(1, total_pages + 1))
+    if set().union(*page_sets.values()) != expected:
+        return False
+    ocr_pages = page_sets["ocr_pages"]
+    if page_sets["failed_pages"] or ocr_pages:
+        return False
+    if coverage["needs_ocr"] != bool(ocr_pages):
+        return False
+    issues = coverage["coverage_issues"]
+    assert isinstance(issues, list)  # validated by _valid_common_coverage
+    issue_pages: set[int] = set()
+    for issue in issues:
+        assert isinstance(issue, dict)
+        page_number = issue.get("page_number")
+        if page_number is not None and page_number > total_pages:
+            return False
+        if issue.get("section_ordinal") is not None:
+            return False
+        if issue.get("code") != "blank_page":
+            return False
+        if not isinstance(page_number, int) or isinstance(page_number, bool):
+            return False
+        issue_pages.add(page_number)
+    return issue_pages.issubset(page_sets["blank_pages"])
+
+
+def _valid_complete_docx_coverage(
+    coverage: dict[object, object], total_sections_value: object
+) -> bool:
+    total_sections = _valid_total(total_sections_value)
+    if total_sections is None or "parsed_sections" not in coverage:
+        return False
+    parsed_sections = _valid_int_list(
+        coverage["parsed_sections"], maximum=total_sections
     )
+    if parsed_sections is None:
+        return False
+    if parsed_sections != set(range(1, total_sections + 1)):
+        return False
+    for field in ("parsed_pages", "blank_pages", "failed_pages", "ocr_pages"):
+        if field in coverage and _valid_int_list(coverage[field], maximum=None) != set():
+            return False
+    if coverage["needs_ocr"]:
+        return False
+    issues = coverage["coverage_issues"]
+    assert isinstance(issues, list)  # validated by _valid_common_coverage
+    for issue in issues:
+        assert isinstance(issue, dict)
+        if issue.get("page_number") is not None:
+            return False
+        section_ordinal = issue.get("section_ordinal")
+        if section_ordinal is not None and section_ordinal > total_sections:
+            return False
+        if issue.get("code") != "blank_page":
+            return False
+    return True

@@ -5,6 +5,7 @@ import pytest
 from app.documents.search import (
     SearchResult,
     SearchScopeError,
+    _coverage_complete,
     overlap_score,
     search_chunks,
     tokenize,
@@ -299,9 +300,13 @@ def test_search_coverage_is_defensive_and_blank_pages_are_complete(db_session) -
         chunks=[("项目经理要求。", 1, "要求")],
     )
     complete.parse_coverage = {
-        "coverage_issues": [{"code": "blank_page", "page_number": 2}],
+        "total_pages": 2,
+        "total_sections": None,
+        "parsed_pages": [1],
+        "blank_pages": [2],
         "failed_pages": [],
         "ocr_pages": [],
+        "coverage_issues": [{"code": "blank_page", "page_number": 2}],
         "needs_ocr": False,
     }
     failed_coverage = _version(
@@ -312,6 +317,10 @@ def test_search_coverage_is_defensive_and_blank_pages_are_complete(db_session) -
         chunks=[("项目经理要求。", 1, "要求")],
     )
     failed_coverage.parse_coverage = {
+        "total_pages": 2,
+        "total_sections": None,
+        "parsed_pages": [1],
+        "blank_pages": [],
         "coverage_issues": [],
         "failed_pages": [2],
         "ocr_pages": [],
@@ -333,10 +342,14 @@ def test_search_coverage_is_defensive_and_blank_pages_are_complete(db_session) -
         chunks=[("项目经理要求。", 1, "要求")],
     )
     partial.parse_coverage = {
-        "coverage_issues": [{"code": "unrecognized_table", "page_number": 2}],
+        "total_pages": 2,
+        "total_sections": None,
+        "parsed_pages": [1],
+        "blank_pages": [],
         "failed_pages": [],
-        "ocr_pages": [],
-        "needs_ocr": False,
+        "ocr_pages": [2],
+        "coverage_issues": [{"code": "unrecognized_table", "page_number": 2}],
+        "needs_ocr": True,
     }
     db_session.add_all([complete, failed_coverage, missing_coverage, partial])
     db_session.commit()
@@ -358,3 +371,109 @@ def test_search_coverage_is_defensive_and_blank_pages_are_complete(db_session) -
     assert by_version[failed_coverage.id].coverage_complete is False
     assert by_version[missing_coverage.id].coverage_complete is False
     assert by_version[partial.id].coverage_complete is False
+
+
+@pytest.mark.parametrize(
+    "coverage",
+    [
+        None,
+        [],
+        {"total_pages": 1, "coverage_issues": [], "needs_ocr": False},
+        {
+            "total_pages": 1,
+            "parsed_pages": "1",
+            "blank_pages": [],
+            "failed_pages": [],
+            "ocr_pages": [],
+            "coverage_issues": [],
+            "needs_ocr": False,
+        },
+        {
+            "total_pages": 1,
+            "parsed_pages": [True],
+            "blank_pages": [],
+            "failed_pages": [],
+            "ocr_pages": [],
+            "coverage_issues": [],
+            "needs_ocr": False,
+        },
+        {
+            "total_pages": 1,
+            "parsed_pages": [1],
+            "blank_pages": [],
+            "failed_pages": [],
+            "ocr_pages": [],
+            "coverage_issues": [{"code": "", "page_number": 1}],
+            "needs_ocr": False,
+        },
+        {
+            "total_pages": 1,
+            "parsed_pages": [1],
+            "blank_pages": [],
+            "failed_pages": [],
+            "ocr_pages": [],
+            "coverage_issues": [{"code": "blank_page"}],
+            "needs_ocr": False,
+        },
+        {
+            "total_pages": 1,
+            "parsed_pages": [1],
+            "blank_pages": [],
+            "failed_pages": [],
+            "ocr_pages": [],
+            "coverage_issues": [
+                {"code": "blank_page", "page_number": 1, "section_ordinal": 2}
+            ],
+            "needs_ocr": False,
+        },
+        {
+            "total_pages": 1,
+            "parsed_pages": [1],
+            "blank_pages": [],
+            "failed_pages": [],
+            "ocr_pages": [],
+            "coverage_issues": [],
+            "needs_ocr": True,
+        },
+        {
+            "total_pages": 2,
+            "parsed_pages": [1],
+            "blank_pages": [],
+            "failed_pages": [],
+            "ocr_pages": [],
+            "coverage_issues": [],
+            "needs_ocr": False,
+        },
+        {
+            "total_sections": 1,
+            "parsed_sections": [2],
+            "coverage_issues": [],
+            "needs_ocr": False,
+        },
+        {
+            "total_sections": 1,
+            "parsed_sections": [1],
+            "coverage_issues": [{"code": "blank_page", "section_ordinal": 2}],
+            "needs_ocr": False,
+        },
+    ],
+)
+def test_malformed_coverage_never_claims_completeness(coverage: object) -> None:
+    assert _coverage_complete("parsed", coverage) is False
+
+
+def test_valid_docx_section_coverage_can_be_complete() -> None:
+    assert _coverage_complete(
+        "parsed",
+        {
+            "total_pages": None,
+            "total_sections": 2,
+            "parsed_sections": [1, 2],
+            "parsed_pages": [],
+            "blank_pages": [],
+            "failed_pages": [],
+            "ocr_pages": [],
+            "coverage_issues": [],
+            "needs_ocr": False,
+        },
+    ) is True
