@@ -228,7 +228,8 @@ def test_uppercase_pdf_extension_is_accepted(client: TestClient) -> None:
     )
 
     assert response.status_code == 201
-    assert response.json()["parse_status"] == "pending"
+    assert response.json()["parse_status"] == "failed"
+    assert response.json()["parse_error_code"] == "invalid_document"
     assert response.json()["uploaded_at"].endswith("Z")
 
 

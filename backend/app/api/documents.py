@@ -49,7 +49,11 @@ def _upload_response(result: IngestionResult) -> DocumentUploadResponse:
         version_id=result.version.id,
         version_number=result.version.version_number,
         sha256=result.version.sha256,
+        size_bytes=result.version.size_bytes,
         parse_status=result.version.parse_status,
+        parse_error_code=result.version.parse_error_code,
+        parse_error=result.version.parse_error,
+        parse_coverage=result.version.parse_coverage,
         uploaded_at=result.version.uploaded_at,
         created=result.created,
     )

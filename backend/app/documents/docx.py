@@ -1,0 +1,150 @@
+from __future__ import annotations
+
+import re
+import zipfile
+from pathlib import Path, PurePosixPath
+from typing import Any
+
+from docx import Document as WordDocument
+from docx.opc.exceptions import PackageNotFoundError
+from docx.table import Table
+from docx.text.paragraph import Paragraph
+
+from app.documents.parser import DocumentParseError, chunk_text, normalize_whitespace
+from app.domain.schemas import ParseCoverageIssue, ParsedChunk, ParsedDocument
+
+MAX_DOCX_MEMBERS = 10_000
+MAX_DOCX_UNCOMPRESSED_BYTES = 100 * 1024 * 1024
+MAX_DOCX_MEMBER_BYTES = 50 * 1024 * 1024
+MAX_DOCX_COMPRESSION_RATIO = 1_000
+MAX_DOCX_BLOCKS = 100_000
+MAX_EXTRACTED_TEXT_CHARACTERS = 5_000_000
+_HEADING_PATTERN = re.compile(r"^Heading\s+([1-9][0-9]*)$", re.IGNORECASE)
+_OBJECT_TAGS = {"drawing", "object", "pict", "altChunk"}
+
+
+def _validate_package(path: Path) -> None:
+    try:
+        with zipfile.ZipFile(path) as archive:
+            members = archive.infolist()
+            if len(members) > MAX_DOCX_MEMBERS:
+                raise DocumentParseError("resource_limit_exceeded")
+            names = {item.filename for item in members}
+            if not {"[Content_Types].xml", "word/document.xml"}.issubset(names):
+                raise DocumentParseError("invalid_document")
+            total = 0
+            for member in members:
+                parts = PurePosixPath(member.filename).parts
+                if member.filename.startswith("/") or ".." in parts:
+                    raise DocumentParseError("invalid_document")
+                if member.flag_bits & 0x1:
+                    raise DocumentParseError("encrypted_document")
+                total += member.file_size
+                if (
+                    member.file_size > MAX_DOCX_MEMBER_BYTES
+                    or total > MAX_DOCX_UNCOMPRESSED_BYTES
+                ):
+                    raise DocumentParseError("resource_limit_exceeded")
+                compressed = max(member.compress_size, 1)
+                if member.file_size / compressed > MAX_DOCX_COMPRESSION_RATIO:
+                    raise DocumentParseError("resource_limit_exceeded")
+    except DocumentParseError:
+        raise
+    except (OSError, zipfile.BadZipFile) as error:
+        raise DocumentParseError("invalid_document") from error
+
+
+def _heading_level(paragraph: Paragraph) -> int | None:
+    style_name = paragraph.style.name if paragraph.style is not None else ""
+    match = _HEADING_PATTERN.fullmatch(style_name)
+    return int(match.group(1)) if match else None
+
+
+def _object_codes(block: Any) -> list[str]:
+    codes: list[str] = []
+    for element in block._element.iter():
+        local_name = str(element.tag).rsplit("}", 1)[-1]
+        if local_name in _OBJECT_TAGS:
+            code = (
+                "embedded_object_not_extracted"
+                if local_name in {"object", "altChunk"}
+                else "image_not_extracted"
+            )
+            if code not in codes:
+                codes.append(code)
+    return codes
+
+
+def _table_text(table: Table) -> str:
+    rows: list[str] = []
+    for row in table.rows:
+        cells = [normalize_whitespace(cell.text) for cell in row.cells]
+        if any(cells):
+            rows.append(" | ".join(cells))
+    return " ".join(rows)
+
+
+def parse_docx(path: Path) -> ParsedDocument:
+    _validate_package(path)
+    try:
+        document = WordDocument(str(path))
+    except (OSError, PackageNotFoundError, ValueError, zipfile.BadZipFile) as error:
+        raise DocumentParseError("invalid_document") from error
+
+    heading_stack: list[tuple[int, str]] = []
+    groups: list[tuple[str | None, list[str]]] = []
+    issues: list[ParseCoverageIssue] = []
+    extracted_characters = 0
+    for object_index, block in enumerate(document.iter_inner_content()):
+        if object_index >= MAX_DOCX_BLOCKS:
+            raise DocumentParseError("resource_limit_exceeded")
+        section_path = " > ".join(text for _, text in heading_stack) or None
+        if isinstance(block, Paragraph):
+            text = normalize_whitespace(block.text)
+            level = _heading_level(block)
+            if level is not None and text:
+                heading_stack = [
+                    (existing_level, heading)
+                    for existing_level, heading in heading_stack
+                    if existing_level < level
+                ]
+                heading_stack.append((level, text))
+                section_path = " > ".join(
+                    heading for _, heading in heading_stack
+                )
+            object_codes = _object_codes(block)
+        elif isinstance(block, Table):
+            text = _table_text(block)
+            object_codes = ["table_structure_not_preserved", *_object_codes(block)]
+        else:
+            continue
+        issue_location = section_path or "$document"
+        for code in object_codes:
+            issues.append(
+                ParseCoverageIssue(
+                    code=code,
+                    section_path=issue_location,
+                    object_index=object_index,
+                )
+            )
+        if not text:
+            continue
+        extracted_characters += len(text)
+        if extracted_characters > MAX_EXTRACTED_TEXT_CHARACTERS:
+            raise DocumentParseError("resource_limit_exceeded")
+        if not groups or groups[-1][0] != section_path:
+            groups.append((section_path, []))
+        groups[-1][1].append(text)
+
+    chunks: list[ParsedChunk] = []
+    for section_path, texts in groups:
+        for piece in chunk_text(" ".join(texts)):
+            chunks.append(
+                ParsedChunk(
+                    chunk_index=len(chunks),
+                    page_number=None,
+                    section_path=section_path,
+                    text=piece,
+                )
+            )
+    return ParsedDocument(chunks=chunks, coverage_issues=issues)

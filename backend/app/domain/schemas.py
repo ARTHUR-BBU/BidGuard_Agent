@@ -2,7 +2,7 @@ import re
 import unicodedata
 from datetime import UTC, datetime
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.domain.enums import EvidenceState, RequirementKind, Severity
 
@@ -16,6 +16,76 @@ def _strip_string(value: object) -> object:
     if isinstance(value, str):
         return value.strip()
     return value
+
+
+class ParseCoverageIssue(BaseModel):
+    code: str = Field(min_length=1, max_length=80)
+    page_number: int | None = Field(default=None, ge=1)
+    section_path: str | None = Field(default=None, min_length=1, max_length=500)
+    object_index: int | None = Field(default=None, ge=0)
+
+    @model_validator(mode="after")
+    def require_location(self) -> ParseCoverageIssue:
+        if self.page_number is None and self.section_path is None:
+            raise ValueError("coverage issue must identify a page or section")
+        return self
+
+
+class ParsedChunk(BaseModel):
+    chunk_index: int = Field(ge=0)
+    page_number: int | None = Field(default=None, ge=1)
+    section_path: str | None = Field(default=None, min_length=1, max_length=500)
+    text: str = Field(min_length=1)
+
+    @field_validator("text", mode="before")
+    @classmethod
+    def strip_chunk_text(cls, value: object) -> object:
+        return _strip_string(value)
+
+
+class ParsedDocument(BaseModel):
+    chunks: list[ParsedChunk]
+    total_pages: int | None = Field(default=None, ge=0)
+    parsed_pages: list[int] = Field(default_factory=list)
+    blank_pages: list[int] = Field(default_factory=list)
+    failed_pages: list[int] = Field(default_factory=list)
+    ocr_pages: list[int] = Field(default_factory=list)
+    coverage_issues: list[ParseCoverageIssue] = Field(default_factory=list)
+    needs_ocr: bool = False
+
+    @model_validator(mode="after")
+    def validate_coverage(self) -> ParsedDocument:
+        indexes = [chunk.chunk_index for chunk in self.chunks]
+        if indexes != list(range(len(indexes))):
+            raise ValueError("chunk indexes must be contiguous and zero-based")
+        for field_name in (
+            "parsed_pages",
+            "blank_pages",
+            "failed_pages",
+            "ocr_pages",
+        ):
+            values = getattr(self, field_name)
+            if values != sorted(set(values)) or any(value < 1 for value in values):
+                raise ValueError(f"{field_name} must be sorted unique positive pages")
+            if self.total_pages is not None and any(
+                value > self.total_pages for value in values
+            ):
+                raise ValueError(f"{field_name} contains a page beyond total_pages")
+        page_sets = [
+            set(self.parsed_pages),
+            set(self.blank_pages),
+            set(self.failed_pages),
+            set(self.ocr_pages),
+        ]
+        if any(
+            page_sets[index] & page_sets[other]
+            for index in range(len(page_sets))
+            for other in range(index + 1, len(page_sets))
+        ):
+            raise ValueError("parsed, blank, failed, and OCR pages must not overlap")
+        if self.needs_ocr != bool(self.ocr_pages):
+            raise ValueError("needs_ocr must reflect ocr_pages")
+        return self
 
 
 class SourceCitation(BaseModel):
@@ -131,7 +201,11 @@ class DocumentVersionResponse(BaseModel):
     id: int
     version_number: int
     sha256: str
+    size_bytes: int | None
     parse_status: str
+    parse_error_code: str | None
+    parse_error: str | None
+    parse_coverage: dict[str, object] | None
     uploaded_at: datetime
 
 
@@ -149,6 +223,10 @@ class DocumentUploadResponse(BaseModel):
     version_id: int
     version_number: int
     sha256: str
+    size_bytes: int | None
     parse_status: str
+    parse_error_code: str | None
+    parse_error: str | None
+    parse_coverage: dict[str, object] | None
     uploaded_at: datetime
     created: bool

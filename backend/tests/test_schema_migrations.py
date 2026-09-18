@@ -162,6 +162,17 @@ def test_empty_legacy_schema_is_upgraded_and_migration_is_idempotent(
     assert "company_content_sha256" in {
         column["name"] for column in inspect(legacy_engine).get_columns("documents")
     }
+    version_columns = {
+        column["name"]
+        for column in inspect(legacy_engine).get_columns("document_versions")
+    }
+    assert {
+        "size_bytes",
+        "parse_error_code",
+        "parse_error",
+        "parse_coverage",
+        "parse_attempt_id",
+    }.issubset(version_columns)
     assert ("project_id", "role") in _unique_column_sets(legacy_engine, "documents")
     assert ("company_content_sha256",) in _unique_column_sets(
         legacy_engine, "documents"
@@ -173,6 +184,29 @@ def test_empty_legacy_schema_is_upgraded_and_migration_is_idempotent(
     first_snapshot = _schema_snapshot(legacy_engine)
     ensure_schema(legacy_engine)
     assert _schema_snapshot(legacy_engine) == first_snapshot
+
+    with legacy_engine.begin() as connection:
+        _insert_project(connection)
+        _insert_document(connection, document_id=1, project_id=1, role="tender")
+        _insert_version(
+            connection,
+            version_id=1,
+            document_id=1,
+            version_number=1,
+            digest="a" * 64,
+        )
+    with pytest.raises(IntegrityError), legacy_engine.begin() as connection:
+        connection.exec_driver_sql(
+            "UPDATE document_versions SET size_bytes = 0 WHERE id = 1"
+        )
+    with pytest.raises(IntegrityError), legacy_engine.begin() as connection:
+        connection.exec_driver_sql(
+            """
+            INSERT INTO document_chunks (
+                document_version_id, chunk_index, text
+            ) VALUES (1, -1, '')
+            """
+        )
 
 
 def test_valid_legacy_data_is_preserved_and_company_digest_is_backfilled(

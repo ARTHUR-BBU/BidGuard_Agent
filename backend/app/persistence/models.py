@@ -115,6 +115,10 @@ class DocumentVersion(Base):
         ),
         UniqueConstraint("document_id", "sha256", name="uq_document_versions_digest"),
         CheckConstraint("version_number >= 1", name="ck_document_versions_number_positive"),
+        CheckConstraint(
+            "size_bytes IS NULL OR size_bytes > 0",
+            name="ck_document_versions_size_positive",
+        ),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
@@ -123,10 +127,15 @@ class DocumentVersion(Base):
     )
     version_number: Mapped[int] = mapped_column(Integer, nullable=False)
     sha256: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    size_bytes: Mapped[int | None] = mapped_column(Integer)
     storage_path: Mapped[str] = mapped_column(String(1000), nullable=False)
     parse_status: Mapped[str] = mapped_column(
         String(40), default="pending", nullable=False
     )
+    parse_error_code: Mapped[str | None] = mapped_column(String(80))
+    parse_error: Mapped[str | None] = mapped_column(Text)
+    parse_coverage: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+    parse_attempt_id: Mapped[str | None] = mapped_column(String(36))
     uploaded_at: Mapped[datetime] = mapped_column(
         UTCDateTime(), default=utc_now, nullable=False
     )
@@ -148,6 +157,14 @@ class DocumentChunk(Base):
         CheckConstraint(
             "page_number IS NULL OR page_number >= 1",
             name="ck_document_chunks_page_positive",
+        ),
+        CheckConstraint(
+            "chunk_index >= 0",
+            name="ck_document_chunks_index_nonnegative",
+        ),
+        CheckConstraint(
+            "length(trim(text)) > 0",
+            name="ck_document_chunks_text_nonempty",
         ),
     )
 

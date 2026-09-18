@@ -15,6 +15,10 @@ class SchemaMigrationError(RuntimeError):
 
 _IDENTITY_INSERT_TRIGGER = "trg_documents_identity_insert"
 _IDENTITY_UPDATE_TRIGGER = "trg_documents_identity_update"
+_VERSION_SIZE_INSERT_TRIGGER = "trg_document_versions_size_insert"
+_VERSION_SIZE_UPDATE_TRIGGER = "trg_document_versions_size_update"
+_CHUNK_CONTENT_INSERT_TRIGGER = "trg_document_chunks_content_insert"
+_CHUNK_CONTENT_UPDATE_TRIGGER = "trg_document_chunks_content_update"
 
 
 def _row_ids(connection: Connection, statement: str) -> list[int]:
@@ -60,6 +64,17 @@ def _has_current_identity_check(connection: Connection) -> bool:
     return False
 
 
+def _has_check_fragments(
+    connection: Connection, table: str, fragments: Sequence[str]
+) -> bool:
+    normalized = [fragment.lower() for fragment in fragments]
+    return any(
+        all(fragment in sql for fragment in normalized)
+        for constraint in inspect(connection).get_check_constraints(table)
+        if (sql := " ".join(str(constraint.get("sqltext", "")).lower().split()))
+    )
+
+
 def _trigger_names(connection: Connection) -> set[str]:
     return {
         str(row[0])
@@ -76,6 +91,18 @@ def _migration_needed(connection: Connection) -> bool:
     }
     if "company_content_sha256" not in document_columns:
         return True
+    version_columns = {
+        str(column["name"])
+        for column in inspect(connection).get_columns("document_versions")
+    }
+    if not {
+        "size_bytes",
+        "parse_error_code",
+        "parse_error",
+        "parse_coverage",
+        "parse_attempt_id",
+    }.issubset(version_columns):
+        return True
 
     document_uniques = _unique_column_sets(connection, "documents")
     version_uniques = _unique_column_sets(connection, "document_versions")
@@ -84,11 +111,24 @@ def _migration_needed(connection: Connection) -> bool:
         _IDENTITY_INSERT_TRIGGER,
         _IDENTITY_UPDATE_TRIGGER,
     }.issubset(trigger_names)
+    version_size_is_enforced = _has_check_fragments(
+        connection, "document_versions", ("size_bytes", "> 0")
+    ) or {_VERSION_SIZE_INSERT_TRIGGER, _VERSION_SIZE_UPDATE_TRIGGER}.issubset(
+        trigger_names
+    )
+    chunk_content_is_enforced = (
+        _has_check_fragments(connection, "document_chunks", ("chunk_index", ">= 0"))
+        and _has_check_fragments(connection, "document_chunks", ("trim(text)", "> 0"))
+    ) or {_CHUNK_CONTENT_INSERT_TRIGGER, _CHUNK_CONTENT_UPDATE_TRIGGER}.issubset(
+        trigger_names
+    )
     return not (
         ("project_id", "role") in document_uniques
         and ("company_content_sha256",) in document_uniques
         and ("document_id", "sha256") in version_uniques
         and identity_is_enforced
+        and version_size_is_enforced
+        and chunk_content_is_enforced
     )
 
 
@@ -250,6 +290,41 @@ def _install_identity_triggers(connection: Connection) -> None:
         )
 
 
+def _install_parser_integrity_triggers(connection: Connection) -> None:
+    trigger_specs = (
+        (
+            "document_versions",
+            _VERSION_SIZE_INSERT_TRIGGER,
+            _VERSION_SIZE_UPDATE_TRIGGER,
+            "NEW.size_bytes IS NOT NULL AND NEW.size_bytes <= 0",
+            "document version size must be positive",
+        ),
+        (
+            "document_chunks",
+            _CHUNK_CONTENT_INSERT_TRIGGER,
+            _CHUNK_CONTENT_UPDATE_TRIGGER,
+            "NEW.chunk_index < 0 OR length(trim(NEW.text)) = 0",
+            "valid document chunk content required",
+        ),
+    )
+    for table, insert_name, update_name, invalid_when, message in trigger_specs:
+        for operation, trigger_name in (
+            ("INSERT", insert_name),
+            ("UPDATE", update_name),
+        ):
+            connection.exec_driver_sql(
+                f"""
+                CREATE TRIGGER IF NOT EXISTS {trigger_name}
+                BEFORE {operation} ON {table}
+                FOR EACH ROW
+                WHEN {invalid_when}
+                BEGIN
+                    SELECT RAISE(ABORT, '{message}');
+                END
+                """
+            )
+
+
 def _upgrade_legacy_sqlite(connection: Connection) -> None:
     if not _migration_needed(connection):
         return
@@ -265,6 +340,23 @@ def _upgrade_legacy_sqlite(connection: Connection) -> None:
         connection.exec_driver_sql(
             "ALTER TABLE documents ADD COLUMN company_content_sha256 VARCHAR(64)"
         )
+
+    version_columns = {
+        str(column["name"])
+        for column in inspect(connection).get_columns("document_versions")
+    }
+    missing_version_columns = {
+        "size_bytes": "INTEGER",
+        "parse_error_code": "VARCHAR(80)",
+        "parse_error": "TEXT",
+        "parse_coverage": "JSON",
+        "parse_attempt_id": "VARCHAR(36)",
+    }
+    for column_name, column_type in missing_version_columns.items():
+        if column_name not in version_columns:
+            connection.exec_driver_sql(
+                f"ALTER TABLE document_versions ADD COLUMN {column_name} {column_type}"
+            )
 
     connection.exec_driver_sql(
         """
@@ -297,6 +389,7 @@ def _upgrade_legacy_sqlite(connection: Connection) -> None:
     )
     if not _has_current_identity_check(connection):
         _install_identity_triggers(connection)
+    _install_parser_integrity_triggers(connection)
 
     if _migration_needed(connection):
         _stop("the upgraded schema did not pass its post-migration verification")

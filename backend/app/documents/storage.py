@@ -135,6 +135,26 @@ def ensure_content(
         temporary_path.unlink(missing_ok=True)
 
 
+def verify_stored_content(
+    root: Path,
+    path: Path,
+    digest: str,
+    expected_size: int,
+) -> Path:
+    """Verify an immutable stored source before downstream parsing."""
+    try:
+        resolved_root = _resolved_path(root)
+        resolved_path = _resolved_path(path)
+        if resolved_root not in resolved_path.parents:
+            raise StorageIntegrityError("Storage path escapes configured root")
+    except (OSError, ValueError) as error:
+        raise StorageIntegrityError("Invalid stored path") from error
+    if expected_size <= 0:
+        raise StorageIntegrityError("Stored content size metadata is invalid")
+    _verify_existing(resolved_path, digest, expected_size)
+    return resolved_path
+
+
 def _verify_existing(path: Path, digest: str, expected_size: int) -> None:
     try:
         if path.stat().st_size != expected_size:

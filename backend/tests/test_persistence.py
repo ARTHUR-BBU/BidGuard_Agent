@@ -43,6 +43,39 @@ from app.persistence.repositories import (
     update_requirements_active,
 )
 
+
+@pytest.mark.parametrize(
+    ("chunk_index", "chunk_text"),
+    [(-1, "content"), (0, "   ")],
+)
+def test_document_chunk_content_constraints_are_enforced(
+    db_session: GuardedSession,
+    chunk_index: int,
+    chunk_text: str,
+) -> None:
+    version = DocumentVersion(
+        document=Document(
+            project=BidProject(name="chunk constraints"),
+            role="tender",
+            display_name="tender.pdf",
+        ),
+        version_number=1,
+        sha256="a" * 64,
+        size_bytes=1,
+        storage_path="stored.pdf",
+    )
+    db_session.add(
+        DocumentChunk(
+            document_version=version,
+            chunk_index=chunk_index,
+            text=chunk_text,
+        )
+    )
+
+    with pytest.raises(IntegrityError):
+        db_session.commit()
+    db_session.rollback()
+
 EXPECTED_TABLES = {
     "action_items",
     "assessments",
