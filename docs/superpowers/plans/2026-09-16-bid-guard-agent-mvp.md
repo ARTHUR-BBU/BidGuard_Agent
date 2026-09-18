@@ -8,6 +8,8 @@
 
 **Tech Stack:** Python 3.14, uv, FastAPI, SQLAlchemy 2, Pydantic 2, SQLite, OpenAI Agents SDK, pypdf, python-docx, React, TypeScript, Vite, Vitest, Testing Library, Playwright.
 
+**Governance update (2026-09-18):** This plan is subordinate to `docs/governance/bidguard-constitution.md` and `docs/governance/llm-position-authority-phased-development.md`. Tasks 6-7 are deterministic foundation work and may proceed. The connectivity-only smoke in Task 8 may send no business document text, but Task 9 must not send tender text to a live model until the mandatory governance gate after Task 8 is complete. Planning, code-complete, mock-tested, live-model-evaluated, and real-business-validated capabilities must be reported separately.
+
 ---
 
 ## Execution prerequisites
@@ -940,12 +942,71 @@ Run: `uv run python scripts/smoke_agent.py`
 
 Expected: `OK`. If access fails, record the exact safe error and stop; do not silently switch providers.
 
+This is a connectivity-only smoke. It sends no tender, proposal, company evidence, user fact, or other business document text, and it does not count as model-quality acceptance.
+
 - [ ] **Step 6: Commit**
 
 ```powershell
 git add backend/app/agents/provider.py backend/app/settings.py backend/scripts/smoke_agent.py backend/tests/test_provider.py
 git commit -m "feat: add configurable agent model provider"
 ```
+
+### Task 8A: Pass the mandatory LLM governance gate
+
+This task is required before Task 9 can send any business document text to a live model. It implements the engineering controls defined by the two governance documents rather than relying on Prompt instructions.
+
+**Files:**
+- Create: `backend/app/agents/contracts.py`
+- Create: `backend/app/agents/context.py`
+- Create: `backend/app/services/model_calls.py`
+- Create: `backend/tests/test_llm_governance.py`
+- Modify: `backend/app/domain/schemas.py`
+- Modify: `backend/app/persistence/models.py`
+- Modify: `backend/app/persistence/schema.py`
+- Modify: `backend/app/settings.py`
+- Modify: `.env.example`
+
+- [ ] **Step 1: Write failing governance contract tests**
+
+Cover prompt versioning, stable reason codes, unified Coverage, safe call-ledger persistence, positive bounded configuration, project-scoped `ReviewContext`, explicitly selected company evidence, and rejection of model-supplied project/version ids that attempt to widen the server scope.
+
+- [ ] **Step 2: Add durable governance objects**
+
+Add a one-to-many LLM call ledger for each `ReviewRun`, including provider/model, Prompt version/hash, authorized input object ids and coverage, attempts, timing, outcome, usage when reported, gate counts, tool-call summary, and stop reason. Do not store API keys or full sensitive document text by default.
+
+Define versioned `Coverage`, Evidence Fact/Claim boundary, shared reason-code types, and a server-created `ReviewContext`. Add a persistent relation recording which company evidence is authorized for a project.
+
+Add a persistent tender-package membership model that records included and excluded main files, attachments, addenda and clarifications, plus their effective/precedence/conflict state. If the current MVP intentionally remains single-tender-file, persist that limitation as Coverage instead of implying that the full tender package was checked.
+
+- [ ] **Step 3: Resolve identity and history rules before extraction**
+
+Specify and test Requirement identity for repeated wording at different source locations and for cross-version lineage. Define tender-package precedence and conflict behavior: an unresolved addendum/clarification conflict fails closed to human confirmation. Define archival/deletion behavior so deleting a file cannot silently erase the evidence chain. Human decisions must later be able to reference actor, source Assessment, applicable versions, and superseded state.
+
+- [ ] **Step 4: Validate runtime limits before model use**
+
+Validate timeout, retry, batch, turn, tool-call, token and cost bounds when Agent execution is requested. Health, file browsing and deterministic APIs must remain available when model configuration is absent. Never silently switch providers or increase limits.
+
+- [ ] **Step 5: Migrate safely and test without touching the real development database**
+
+Extend the supported SQLite migration path for the new governance objects. Tests must use isolated databases, preserve valid old rows, fail closed on unsafe conflicts, remain idempotent, and leave `backend/bidguard.db` unchanged.
+
+- [ ] **Step 6: Pass the governance gate**
+
+Before Task 9 live extraction, verify:
+
+```text
+LLM call ledger persists a safe record
+Coverage records read and unread scope
+Prompt version and reason codes are stable
+Project/company evidence authorization is enforced by code
+ReviewContext prevents model-controlled scope expansion
+Tender-package membership and included/excluded scope are persisted
+Addendum/clarification precedence or unresolved conflict is explicit
+Budget, timeout and stop semantics are tested
+No business text has been sent during unit or mock tests
+```
+
+Commit the governance foundation separately. A mock-only pass may be described as “programmatic governance controls implemented”; it is not real-model quality acceptance.
 
 ### Task 9: Extract traceable atomic requirements
 
@@ -987,9 +1048,11 @@ Use `Runner.run` once per bounded page/section batch. Pass model name through `r
 
 Mock only the model response boundary, not validation or persistence. Assert that invalid citations never reach the database and duplicate candidates create one active requirement.
 
-- [ ] **Step 6: Run one bounded live extraction test**
+- [ ] **Step 6: After Task 8A passes, run one bounded live extraction test**
 
 Use `backend/tests/fixtures/sample-tender.pdf`. Verify at least one known requirement appears with the correct page and exact quote. Save the safe result summary under `backend/evals/results/extraction-smoke.json`.
+
+While the product supports only one active tender file, label this result as a **single-file bounded extraction evaluation**. It must not be reported as complete tender-package coverage.
 
 - [ ] **Step 7: Commit**
 
