@@ -51,6 +51,42 @@ def test_parser_contract_rejects_empty_chunk_text() -> None:
     assert parsed.chunks[0].text.startswith("1.1")
 
 
+def test_parser_contract_rejects_impossible_section_ordinals() -> None:
+    with pytest.raises(ValueError, match="parsed_sections cannot exceed"):
+        ParsedDocument(chunks=[], total_sections=1, parsed_sections=[2])
+
+    chunk = ParsedChunk(
+        chunk_index=0,
+        page_number=None,
+        section_path="资格要求",
+        section_ordinal=2,
+        text="正文",
+    )
+    with pytest.raises(ValueError, match="must belong to parsed_sections"):
+        ParsedDocument(
+            chunks=[chunk],
+            total_sections=2,
+            parsed_sections=[1],
+        )
+    with pytest.raises(ValueError, match="require total_sections"):
+        ParsedDocument(chunks=[chunk], parsed_sections=[2])
+
+
+def test_docx_body_without_headings_is_one_physical_section(tmp_path: Path) -> None:
+    path = tmp_path / "body-only.docx"
+    document = WordDocument()
+    document.add_paragraph("没有标题但仍然可定位的正文。")
+    document.save(str(path))
+
+    result = parse_document(path)
+
+    assert result.total_sections == 1
+    assert result.parsed_sections == [1]
+    assert len(result.chunks) == 1
+    assert result.chunks[0].section_path is None
+    assert result.chunks[0].section_ordinal == 1
+
+
 def test_real_pdf_fixture_preserves_page_numbers_and_text() -> None:
     result = parse_document(SAMPLE_PDF)
 

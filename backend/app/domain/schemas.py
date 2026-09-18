@@ -97,8 +97,23 @@ class ParsedDocument(BaseModel):
             raise ValueError("parsed_sections must be sorted unique positive ordinals")
         if any(section < 1 for section in self.parsed_sections):
             raise ValueError("parsed_sections must be sorted unique positive ordinals")
-        if self.total_sections is not None and len(self.parsed_sections) > self.total_sections:
+        if self.total_sections is not None and any(
+            section > self.total_sections for section in self.parsed_sections
+        ):
             raise ValueError("parsed_sections cannot exceed total_sections")
+        chunk_sections = {
+            chunk.section_ordinal
+            for chunk in self.chunks
+            if chunk.section_ordinal is not None
+        }
+        if chunk_sections and self.total_sections is None:
+            raise ValueError("sectioned chunks require total_sections")
+        if not chunk_sections.issubset(set(self.parsed_sections)):
+            raise ValueError("chunk section ordinals must belong to parsed_sections")
+        if self.total_sections is not None and any(
+            section > self.total_sections for section in chunk_sections
+        ):
+            raise ValueError("chunk section ordinal cannot exceed total_sections")
         return self
 
 
