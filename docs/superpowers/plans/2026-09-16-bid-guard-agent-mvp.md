@@ -864,11 +864,11 @@ git commit -m "feat: parse bid documents with traceable locations"
 - Create: `backend/app/documents/search.py`
 - Create: `backend/tests/test_search.py`
 
-- [ ] **Step 1: Write failing lexical-search tests**
+- [x] **Step 1: Write failing lexical-search tests**
 
 Test that a query for `信息系统项目管理师 项目经理` ranks the chunk containing both terms above unrelated chunks, filters by document role, and returns source version/page metadata.
 
-- [ ] **Step 2: Implement deterministic ranking**
+- [x] **Step 2: Implement deterministic ranking**
 
 Implement a small, testable lexical ranker:
 
@@ -890,7 +890,7 @@ def overlap_score(query: str, text: str) -> float:
 
 `search_chunks` must retrieve candidates from the database by allowed document version ids, score them, discard zero scores, and return at most the requested limit.
 
-- [ ] **Step 3: Verify and commit**
+- [x] **Step 3: Verify and commit**
 
 ```powershell
 uv run pytest tests/test_search.py -v

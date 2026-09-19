@@ -1,6 +1,6 @@
 # Task 7 Constitution Impact
 
-> 状态：Task 7 修订待独立复审
+> 状态：Task 7 修订已通过独立复审（Critical 0 / Important 0 / Minor 0，Ready = Yes）
 >
 > 变更：模型无关证据候选检索的安全边界修订
 
