@@ -27,6 +27,7 @@ Task 7 原本只按调用方传入的 `allowed_document_version_ids` 检索候�
 4. 只读取 `parsed` / `partial_failure` 版本；pending、parsing、failed、needs-OCR 版本不可检索。
 5. `coverage_complete` 由持久化 Coverage 防御性复算，缺失或异常按不完整处理。
 6. 检索结果保留版本、页、章节、角色、解析状态和覆盖完整性元数据。
+7. 可检索的 `parsed` 版本必须保存四个页面覆盖列表；DOCX 也必须明确保存四个空列表。可宣称完整的 PDF 页数和 DOCX 章节数必须为正数，且统计范围自洽。
 
 ## 测试证据
 

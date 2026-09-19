@@ -350,8 +350,12 @@ def _valid_int_list(
     return result
 
 
-def _valid_total(value: object) -> int | None:
-    if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+def _valid_total(value: object, *, minimum: int = 0) -> int | None:
+    if (
+        not isinstance(value, int)
+        or isinstance(value, bool)
+        or value < minimum
+    ):
         return None
     return value
 
@@ -359,7 +363,7 @@ def _valid_total(value: object) -> int | None:
 def _valid_complete_pdf_coverage(
     coverage: dict[object, object], total_pages_value: object
 ) -> bool:
-    total_pages = _valid_total(total_pages_value)
+    total_pages = _valid_total(total_pages_value, minimum=1)
     if total_pages is None:
         return False
     page_fields = ("parsed_pages", "blank_pages", "failed_pages", "ocr_pages")
@@ -406,8 +410,13 @@ def _valid_complete_pdf_coverage(
 def _valid_complete_docx_coverage(
     coverage: dict[object, object], total_sections_value: object
 ) -> bool:
-    total_sections = _valid_total(total_sections_value)
+    total_sections = _valid_total(total_sections_value, minimum=1)
+    page_fields = ("parsed_pages", "blank_pages", "failed_pages", "ocr_pages")
     if total_sections is None or "parsed_sections" not in coverage:
+        return False
+    if not all(field in coverage for field in page_fields):
+        return False
+    if any(_valid_int_list(coverage[field], maximum=None) != set() for field in page_fields):
         return False
     parsed_sections = _valid_int_list(
         coverage["parsed_sections"], maximum=total_sections
@@ -416,9 +425,6 @@ def _valid_complete_docx_coverage(
         return False
     if parsed_sections != set(range(1, total_sections + 1)):
         return False
-    for field in ("parsed_pages", "blank_pages", "failed_pages", "ocr_pages"):
-        if field in coverage and _valid_int_list(coverage[field], maximum=None) != set():
-            return False
     if coverage["needs_ocr"]:
         return False
     issues = coverage["coverage_issues"]
@@ -428,8 +434,12 @@ def _valid_complete_docx_coverage(
         if issue.get("page_number") is not None:
             return False
         section_ordinal = issue.get("section_ordinal")
-        if section_ordinal is not None and section_ordinal > total_sections:
+        if section_ordinal is not None and (
+            section_ordinal > total_sections or section_ordinal not in parsed_sections
+        ):
             return False
         if issue.get("code") != "blank_page":
+            return False
+        if issue.get("page_number") is None:
             return False
     return True

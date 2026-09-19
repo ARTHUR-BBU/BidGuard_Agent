@@ -389,6 +389,15 @@ def test_search_coverage_is_defensive_and_blank_pages_are_complete(db_session) -
             "needs_ocr": False,
         },
         {
+            "total_pages": 0,
+            "parsed_pages": [],
+            "blank_pages": [],
+            "failed_pages": [],
+            "ocr_pages": [],
+            "coverage_issues": [],
+            "needs_ocr": False,
+        },
+        {
             "total_pages": 1,
             "parsed_pages": [True],
             "blank_pages": [],
@@ -447,6 +456,22 @@ def test_search_coverage_is_defensive_and_blank_pages_are_complete(db_session) -
         {
             "total_sections": 1,
             "parsed_sections": [2],
+            "coverage_issues": [],
+            "needs_ocr": False,
+        },
+        {
+            "total_sections": 1,
+            "parsed_sections": [1],
+            "coverage_issues": [],
+            "needs_ocr": False,
+        },
+        {
+            "total_sections": 0,
+            "parsed_sections": [],
+            "parsed_pages": [],
+            "blank_pages": [],
+            "failed_pages": [],
+            "ocr_pages": [],
             "coverage_issues": [],
             "needs_ocr": False,
         },
