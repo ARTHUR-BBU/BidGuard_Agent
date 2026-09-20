@@ -86,9 +86,12 @@ EXPECTED_TABLES = {
     "document_versions",
     "documents",
     "evidence_links",
+    "llm_call_records",
+    "project_company_evidence",
     "requirements",
     "review_jobs",
     "review_runs",
+    "tender_package_members",
 }
 
 

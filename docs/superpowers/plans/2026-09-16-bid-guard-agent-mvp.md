@@ -966,11 +966,11 @@ This task is required before Task 9 can send any business document text to a liv
 - Modify: `backend/app/settings.py`
 - Modify: `.env.example`
 
-- [ ] **Step 1: Write failing governance contract tests**
+- [x] **Step 1: Write failing governance contract tests**
 
 Cover prompt versioning, stable reason codes, unified Coverage, safe call-ledger persistence, positive bounded configuration, project-scoped `ReviewContext`, explicitly selected company evidence, and rejection of model-supplied project/version ids that attempt to widen the server scope.
 
-- [ ] **Step 2: Add durable governance objects**
+- [x] **Step 2: Add durable governance objects**
 
 Add a one-to-many LLM call ledger for each `ReviewRun`, including provider/model, Prompt version/hash, authorized input object ids and coverage, attempts, timing, outcome, usage when reported, gate counts, tool-call summary, and stop reason. Do not store API keys or full sensitive document text by default.
 
@@ -978,19 +978,19 @@ Define versioned `Coverage`, Evidence Fact/Claim boundary, shared reason-code ty
 
 Add a persistent tender-package membership model that records included and excluded main files, attachments, addenda and clarifications, plus their effective/precedence/conflict state. If the current MVP intentionally remains single-tender-file, persist that limitation as Coverage instead of implying that the full tender package was checked.
 
-- [ ] **Step 3: Resolve identity and history rules before extraction**
+- [x] **Step 3: Resolve identity and history rules before extraction**
 
 Specify and test Requirement identity for repeated wording at different source locations and for cross-version lineage. Define tender-package precedence and conflict behavior: an unresolved addendum/clarification conflict fails closed to human confirmation. Define archival/deletion behavior so deleting a file cannot silently erase the evidence chain. Human decisions must later be able to reference actor, source Assessment, applicable versions, and superseded state.
 
-- [ ] **Step 4: Validate runtime limits before model use**
+- [x] **Step 4: Validate runtime limits before model use**
 
 Validate timeout, retry, batch, turn, tool-call, token and cost bounds when Agent execution is requested. Health, file browsing and deterministic APIs must remain available when model configuration is absent. Never silently switch providers or increase limits.
 
-- [ ] **Step 5: Migrate safely and test without touching the real development database**
+- [x] **Step 5: Migrate safely and test without touching the real development database**
 
 Extend the supported SQLite migration path for the new governance objects. Tests must use isolated databases, preserve valid old rows, fail closed on unsafe conflicts, remain idempotent, and leave `backend/bidguard.db` unchanged.
 
-- [ ] **Step 6: Pass the governance gate**
+- [x] **Step 6: Pass the governance gate**
 
 Before Task 9 live extraction, verify:
 

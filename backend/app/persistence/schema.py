@@ -19,6 +19,7 @@ _VERSION_SIZE_INSERT_TRIGGER = "trg_document_versions_size_insert"
 _VERSION_SIZE_UPDATE_TRIGGER = "trg_document_versions_size_update"
 _CHUNK_CONTENT_INSERT_TRIGGER = "trg_document_chunks_content_insert_v2"
 _CHUNK_CONTENT_UPDATE_TRIGGER = "trg_document_chunks_content_update_v2"
+_DOCUMENT_VERSION_REFERENCE_DELETE_TRIGGER = "trg_document_versions_reference_delete"
 
 
 def _row_ids(connection: Connection, statement: str) -> list[int]:
@@ -338,6 +339,31 @@ def _install_parser_integrity_triggers(connection: Connection) -> None:
             )
 
 
+def _install_document_version_reference_trigger(connection: Connection) -> None:
+    """Prevent legacy SQLite cascades from erasing the evidence chain."""
+
+    connection.exec_driver_sql(
+        f"""
+        CREATE TRIGGER IF NOT EXISTS {_DOCUMENT_VERSION_REFERENCE_DELETE_TRIGGER}
+        BEFORE DELETE ON document_versions
+        FOR EACH ROW
+        WHEN EXISTS (SELECT 1 FROM requirements WHERE source_version_id = OLD.id)
+          OR EXISTS (SELECT 1 FROM evidence_links WHERE document_version_id = OLD.id)
+          OR EXISTS (
+              SELECT 1 FROM project_company_evidence
+              WHERE document_version_id = OLD.id
+          )
+          OR EXISTS (
+              SELECT 1 FROM tender_package_members
+              WHERE document_version_id = OLD.id
+          )
+        BEGIN
+            SELECT RAISE(ABORT, 'document version is referenced; archive instead');
+        END
+        """
+    )
+
+
 def _upgrade_legacy_sqlite(connection: Connection) -> None:
     if not _migration_needed(connection):
         return
@@ -434,6 +460,7 @@ def ensure_schema(engine: Engine) -> None:
         try:
             Base.metadata.create_all(connection)
             _upgrade_legacy_sqlite(connection)
+            _install_document_version_reference_trigger(connection)
             connection.commit()
         except SchemaMigrationError:
             connection.rollback()

@@ -13,6 +13,7 @@ from urllib.parse import urlparse
 
 from agents import ModelRetrySettings, ModelSettings, OpenAIProvider, RunConfig
 
+from app.agents.contracts import AgentRuntimeLimits
 from app.settings import Settings
 
 ModelPurpose = Literal["extraction", "review"]
@@ -76,6 +77,7 @@ def build_run_config(
     purpose: ModelPurpose = "review",
     provider: str | None = None,
     model: str | None = None,
+    limits: AgentRuntimeLimits | None = None,
 ) -> RunConfig:
     """Build the single SDK boundary used by future Agent executions.
 
@@ -85,6 +87,10 @@ def build_run_config(
     explicit retry policy in a later governed task.
     """
 
+    runtime_limits = limits or AgentRuntimeLimits(
+        max_turns=settings.max_agent_turns,
+        max_tool_calls=settings.max_tool_calls,
+    )
     provider_name = _normalise_provider(provider or settings.model_provider)
 
     model_name = resolve_model_name(
@@ -110,8 +116,9 @@ def build_run_config(
         model=model_name,
         model_provider=model_provider,
         model_settings=ModelSettings(
-            timeout=15.0,
-            retry=ModelRetrySettings(max_retries=0),
+            timeout=runtime_limits.timeout_seconds,
+            max_tokens=runtime_limits.max_output_tokens,
+            retry=ModelRetrySettings(max_retries=runtime_limits.max_retries),
         ),
         tracing_disabled=True,
         trace_include_sensitive_data=False,
