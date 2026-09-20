@@ -908,11 +908,11 @@ git commit -m "feat: add model-independent evidence retrieval"
 - Create: `backend/tests/test_provider.py`
 - Modify: `backend/app/settings.py`
 
-- [ ] **Step 1: Write configuration tests without calling a model**
+- [x] **Step 1: Write configuration tests without calling a model**
 
 Test that missing `EXTRACTION_MODEL` or `REVIEW_MODEL` produces a clear startup/configuration error only when Agent execution is requested, not when health endpoints run.
 
-- [ ] **Step 2: Implement provider resolution**
+- [x] **Step 2: Implement provider resolution**
 
 Expose:
 
@@ -926,17 +926,17 @@ def resolve_model_name(purpose: Literal["extraction", "review"], settings: Setti
 
 Keep provider construction behind `build_run_config(settings)`. The first implementation may return the default OpenAI run configuration; do not spread provider checks into Agent modules.
 
-- [ ] **Step 3: Add the bounded smoke command**
+- [x] **Step 3: Add the bounded smoke command**
 
 `backend/scripts/smoke_agent.py` must run one Agent turn with no tools and print only `OK` when a non-empty structured response returns. It must not print keys, headers, or environment values.
 
-- [ ] **Step 4: Run unit tests**
+- [x] **Step 4: Run unit tests**
 
 Run: `uv run pytest tests/test_provider.py -v`
 
 Expected: PASS without network access.
 
-- [ ] **Step 5: After credential approval, run one live smoke check**
+- [ ] **Step 5: After explicit REVIEW_MODEL configuration, run one live smoke check**
 
 Run: `uv run python scripts/smoke_agent.py`
 
@@ -944,7 +944,7 @@ Expected: `OK`. If access fails, record the exact safe error and stop; do not si
 
 This is a connectivity-only smoke. It sends no tender, proposal, company evidence, user fact, or other business document text, and it does not count as model-quality acceptance.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```powershell
 git add backend/app/agents/provider.py backend/app/settings.py backend/scripts/smoke_agent.py backend/tests/test_provider.py

@@ -1,6 +1,6 @@
 # Task 8 Constitution Impact
 
-> 状态：实现待独立复审
+> 状态：代码实现已通过独立复审（Critical 0 / Important 0 / Minor 0，Ready = Yes）；live smoke 待明确模型配置
 >
 > 变更：建立模型供应商边界与受限连通性 smoke
 
@@ -33,7 +33,7 @@ Task 8 新增了模型供应商配置和 Agents SDK 的运行配置边界。宪�
 - `RunConfig` 使用安装版本 `openai-agents 0.22.2` 的实际 `Runner.run_sync` 兼容路径。
 - 伪 Runner 成功路径返回结构化结果，避免把异步 coroutine 当成结果。
 - smoke 缺配置时只打印 `ERROR MODEL_NOT_CONFIGURED`，不打印环境值或请求头。
-- 真实 live smoke 未在本任务中运行，等待独立复审和批准。
+- 真实 live smoke 已按安全路径尝试，但因未配置 `REVIEW_MODEL` 返回 `ERROR MODEL_NOT_CONFIGURED`，未发出 API 请求；待项目负责人明确模型名后再运行一次。
 
 ## 能力声明
 
