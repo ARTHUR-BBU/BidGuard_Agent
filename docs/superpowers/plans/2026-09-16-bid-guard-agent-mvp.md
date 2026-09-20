@@ -1017,15 +1017,15 @@ Commit the governance foundation separately. A mock-only pass may be described a
 - Create: `backend/tests/test_agent_gates.py`
 - Create: `backend/tests/test_requirement_extraction.py`
 
-- [ ] **Step 1: Write citation-gate tests**
+- [x] **Step 1: Write citation-gate tests**
 
 Test that a requirement candidate is rejected when its source version differs from the active tender version, its page does not exist, its quote is absent from the cited chunk, or the quote is empty. Test that a valid candidate is accepted and assigned a stable SHA-256 fingerprint derived from normalized requirement text plus source location.
 
-- [ ] **Step 2: Implement citation gate**
+- [x] **Step 2: Implement citation gate**
 
 Create `validate_requirement_candidate(candidate, active_version, chunks) -> ValidatedRequirement`. The function performs no model calls and raises typed `CitationGateError` values with codes `wrong_version`, `missing_page`, `quote_not_found`, or `empty_quote`.
 
-- [ ] **Step 3: Implement extraction Agent**
+- [x] **Step 3: Implement extraction Agent**
 
 Define one `Agent[None]` with `output_type=RequirementBatch`. Instructions must state:
 
@@ -1040,11 +1040,11 @@ Return an empty list when the excerpt contains no bidder requirement.
 
 Use `Runner.run` once per bounded page/section batch. Pass model name through `resolve_model_name("extraction", settings)` and set a maximum turn count.
 
-- [ ] **Step 4: Normalize and save requirements**
+- [x] **Step 4: Normalize and save requirements**
 
 `services/requirements.py` must validate every candidate, deduplicate on fingerprint, save rejected-candidate audit events, and never delete historical requirements. A new tender version marks old requirements inactive before saving the new matrix.
 
-- [ ] **Step 5: Run mocked contract tests**
+- [x] **Step 5: Run mocked contract tests**
 
 Mock only the model response boundary, not validation or persistence. Assert that invalid citations never reach the database and duplicate candidates create one active requirement.
 

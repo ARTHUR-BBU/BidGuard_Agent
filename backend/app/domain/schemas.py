@@ -129,9 +129,9 @@ class ParsedDocument(BaseModel):
 
 
 class SourceCitation(BaseModel):
-    document_version_id: int
-    page_number: int | None = None
-    section_path: str | None = None
+    document_version_id: int = Field(gt=0)
+    page_number: int | None = Field(default=None, ge=1)
+    section_path: str | None = Field(default=None, min_length=1, max_length=500)
     quote: str = Field(min_length=1, max_length=2000)
 
     @field_validator("quote", mode="before")

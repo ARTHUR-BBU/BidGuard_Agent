@@ -226,6 +226,11 @@ class Requirement(Base):
     fingerprint: Mapped[str] = mapped_column(
         String(64), default=_requirement_fingerprint, nullable=False, index=True
     )
+    # Business identity (kind + text) and cited-location identity are kept
+    # separate so repeated wording at different source locations is visible.
+    citation_fingerprint: Mapped[str | None] = mapped_column(
+        String(64), nullable=True, index=True
+    )
     active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
 
     project: Mapped[BidProject] = relationship(back_populates="requirements")

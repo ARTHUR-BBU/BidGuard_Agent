@@ -111,6 +111,12 @@ def _migration_needed(connection: Connection) -> bool:
     }
     if "section_ordinal" not in chunk_columns:
         return True
+    requirement_columns = {
+        str(column["name"])
+        for column in inspect(connection).get_columns("requirements")
+    }
+    if "citation_fingerprint" not in requirement_columns:
+        return True
 
     document_uniques = _unique_column_sets(connection, "documents")
     version_uniques = _unique_column_sets(connection, "document_versions")
@@ -405,6 +411,15 @@ def _upgrade_legacy_sqlite(connection: Connection) -> None:
     if "section_ordinal" not in chunk_columns:
         connection.exec_driver_sql(
             "ALTER TABLE document_chunks ADD COLUMN section_ordinal INTEGER"
+        )
+
+    requirement_columns = {
+        str(column["name"])
+        for column in inspect(connection).get_columns("requirements")
+    }
+    if "citation_fingerprint" not in requirement_columns:
+        connection.exec_driver_sql(
+            "ALTER TABLE requirements ADD COLUMN citation_fingerprint VARCHAR(64)"
         )
 
     connection.exec_driver_sql(
