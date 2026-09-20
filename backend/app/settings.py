@@ -11,6 +11,10 @@ class Settings(BaseSettings):
     model_provider: str = "openai"
     extraction_model: str = ""
     review_model: str = ""
+    easyrouter_api_key: str = ""
+    easyrouter_base_url: str = "https://easyrouter.io/v1"
+    easyrouter_extraction_model: str = ""
+    easyrouter_review_model: str = ""
     max_agent_turns: int = 12
     max_tool_calls: int = 40
 

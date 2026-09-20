@@ -87,7 +87,8 @@
 |---|---|---|
 | 模型无关证据检索 | 已完成；后续 Agent 只能使用受项目和 Coverage 约束的候选结果 | 已完成 |
 | Task 8A 模型调用门禁 | 真实业务文本进入模型前，完成调用台账、预算、范围与人工确认验收 | 强制门禁 |
-| 明确 `REVIEW_MODEL` | 项目负责人确认复核用途模型名后，写入受控本地环境并运行一次无业务文本 smoke | 待拍板 |
+| 明确 `REVIEW_MODEL` | 已确认 `gpt-5.6-luna`；OpenAI 主通道 smoke 仍可按需执行 | 已完成配置 |
+| EasyRouter 备用通道 | 已确认 `deepseek-v4-flash` 并完成无业务文本 smoke；自动故障切换仍待独立治理 | 已完成连通性 |
 | 复杂文档能力 | 分别评估 OCR、表格几何、附件和 Word 非正文内容提取的价值与成本 | 后续评估 |
 | 真实招标文件回归集 | 在来源、授权和脱敏边界明确后，建立复杂公开样本验证集 | 业务验证前 |
 | GitHub 协作入口 | 安全衔接远端初始提交并推送功能分支，不覆盖远端 `main` | 本轮收尾 |
@@ -110,13 +111,14 @@
 - Task 8 专项测试 **7 项通过**；本地全套测试 **227 项通过**；Ruff、Mypy 和差异检查通过。
 - 独立最终验收：**Critical 0、Important 0、Minor 0，Ready = Yes**。
 - `Constitution impact: Yes` 已正式记录：本任务新增模型供应商边界，但没有创建 Evidence、Assessment、DisplayStatus，也没有扩大 Agent 工具或业务文档权限。
-- 已按安全路径尝试 smoke，结果为 `ERROR MODEL_NOT_CONFIGURED`；没有发出 API 请求，也没有发送业务文本。
+- 初次 smoke 因未配置模型名安全返回 `ERROR MODEL_NOT_CONFIGURED`，没有发出 API 请求。
+- 用户确认 `deepseek-v4-flash` 后，EasyRouter 显式 smoke 输出 **`OK`**；只发送固定 readiness 文案，没有发送业务文本。
 
-当前边界：Key 已选择复用，但项目尚未配置明确的 `REVIEW_MODEL`，因此 live smoke 尚未证明通道连通。即使之后得到 `OK`，也只证明最小调用可用，不代表模型具备投标审查质量。
+当前边界：EasyRouter 通道已连通，但这只证明最小 API 调用可用，不代表模型具备投标审查质量。OpenAI 主模型仍按显式配置使用，两个供应商之间尚未启用自动故障切换。
 
 ### 需要您拍板
 
-请明确一个用于复核用途的模型名，写入受控本地环境配置后再运行一次 smoke。不要把 SDK 默认模型当作项目配置；模型名确认后，Task 8 才能完整勾选。
+当前没有新增拍板事项。若以后启用 OpenAI → EasyRouter 自动故障切换，必须单独定义可切换错误、预算、调用账本和人工可见语义，并重新进行 Constitution impact 审查。
 
 ### 待办登记
 

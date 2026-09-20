@@ -11,6 +11,10 @@ SETTINGS_ENV_VARS = (
     "MODEL_PROVIDER",
     "EXTRACTION_MODEL",
     "REVIEW_MODEL",
+    "EASYROUTER_API_KEY",
+    "EASYROUTER_BASE_URL",
+    "EASYROUTER_EXTRACTION_MODEL",
+    "EASYROUTER_REVIEW_MODEL",
     "MAX_AGENT_TURNS",
     "MAX_TOOL_CALLS",
 )
@@ -38,5 +42,9 @@ def test_settings_expose_safe_defaults() -> None:
     assert settings.model_provider == "openai"
     assert settings.extraction_model == ""
     assert settings.review_model == ""
+    assert settings.easyrouter_api_key == ""
+    assert settings.easyrouter_base_url == "https://easyrouter.io/v1"
+    assert settings.easyrouter_extraction_model == ""
+    assert settings.easyrouter_review_model == ""
     assert settings.max_agent_turns == 12
     assert settings.max_tool_calls == 40

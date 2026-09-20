@@ -76,6 +76,104 @@ def test_build_run_config_rejects_missing_model_for_execution() -> None:
         build_run_config(settings, purpose="extraction")
 
 
+def test_easyrouter_builds_explicit_chat_completions_provider() -> None:
+    settings = Settings(
+        model_provider="easyrouter",
+        easyrouter_api_key="test-key",
+        easyrouter_base_url="https://easyrouter.io/v1",
+        easyrouter_review_model="deepseek-v4-flash",
+    )
+
+    config = build_run_config(settings, purpose="review")
+
+    assert config.model == "deepseek-v4-flash"
+    provider = config.model_provider
+    assert type(provider).__name__ == "OpenAIProvider"
+    assert vars(provider)["_stored_base_url"] == "https://easyrouter.io/v1"
+    assert vars(provider)["_stored_api_key"] == "test-key"
+    assert vars(provider)["_use_responses"] is False
+
+
+def test_easyrouter_can_be_selected_explicitly_without_changing_openai_default() -> None:
+    settings = Settings(
+        model_provider="openai",
+        review_model="openai-review",
+        easyrouter_api_key="test-key",
+        easyrouter_review_model="deepseek-v4-flash",
+    )
+
+    config = build_run_config(
+        settings,
+        provider="easyrouter",
+        model="deepseek-v4-flash",
+    )
+
+    assert config.model == "deepseek-v4-flash"
+    assert type(config.model_provider).__name__ == "OpenAIProvider"
+    assert vars(config.model_provider)["_use_responses"] is False
+
+
+@pytest.mark.parametrize(
+    ("settings", "code"),
+    [
+        (
+            Settings(
+                model_provider="easyrouter",
+                easyrouter_review_model="deepseek-v4-flash",
+            ),
+            "MODEL_API_KEY_NOT_CONFIGURED",
+        ),
+        (
+            Settings(
+                model_provider="easyrouter",
+                easyrouter_api_key="test-key",
+                easyrouter_base_url="http://easyrouter.io/v1",
+                easyrouter_review_model="deepseek-v4-flash",
+            ),
+            "MODEL_BASE_URL_INVALID",
+        ),
+        (
+            Settings(
+                model_provider="easyrouter",
+                easyrouter_api_key="test-key",
+            ),
+            "MODEL_NOT_CONFIGURED",
+        ),
+    ],
+)
+def test_easyrouter_configuration_errors_fail_closed(settings: Settings, code: str) -> None:
+    with pytest.raises(ModelConfigurationError, match=code):
+        build_run_config(settings)
+
+
+def test_smoke_accepts_explicit_provider_and_model_without_business_text() -> None:
+    smoke = _load_smoke_module()
+
+    class FakeRunner:
+        @staticmethod
+        def run_sync(agent, prompt, *, max_turns, run_config):
+            assert max_turns == 1
+            assert agent.tools == []
+            assert prompt == "Reply with a readiness acknowledgement only."
+            assert run_config.model == "deepseek-v4-flash"
+            return SimpleNamespace(final_output="OK")
+
+    settings = Settings(
+        model_provider="openai",
+        review_model="openai-review",
+        easyrouter_api_key="test-key",
+    )
+    assert (
+        smoke.run_smoke(
+            settings,
+            runner=FakeRunner,
+            provider="easyrouter",
+            model="deepseek-v4-flash",
+        )
+        is True
+    )
+
+
 def test_smoke_uses_sync_runner_and_accepts_structured_result() -> None:
     smoke = _load_smoke_module()
     calls: list[tuple[object, str, int, object]] = []

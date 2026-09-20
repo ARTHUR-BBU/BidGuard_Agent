@@ -936,7 +936,7 @@ Run: `uv run pytest tests/test_provider.py -v`
 
 Expected: PASS without network access.
 
-- [ ] **Step 5: After explicit REVIEW_MODEL configuration, run one live smoke check**
+- [x] **Step 5: After explicit REVIEW_MODEL configuration, run one live smoke check**
 
 Run: `uv run python scripts/smoke_agent.py`
 
