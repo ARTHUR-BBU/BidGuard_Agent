@@ -108,7 +108,7 @@
 ### 给您的交代
 
 - 最终提交：`ea8ba6d`，边界测试加固提交：`d2da0bb`。
-- Task 8 专项测试 **7 项通过**；本地全套测试 **227 项通过**；Ruff、Mypy 和差异检查通过。
+- Task 8 专项测试 **14 项通过**；本地全套测试 **233 项通过**；Ruff、Mypy 和差异检查通过。
 - 独立最终验收：**Critical 0、Important 0、Minor 0，Ready = Yes**。
 - `Constitution impact: Yes` 已正式记录：本任务新增模型供应商边界，但没有创建 Evidence、Assessment、DisplayStatus，也没有扩大 Agent 工具或业务文档权限。
 - 初次 smoke 因未配置模型名安全返回 `ERROR MODEL_NOT_CONFIGURED`，没有发出 API 请求。
