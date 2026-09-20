@@ -70,4 +70,3 @@ def build_run_config(
         trace_include_sensitive_data=False,
         workflow_name="BidGuard bounded smoke",
     )
-

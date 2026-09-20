@@ -78,13 +78,19 @@ def test_build_run_config_rejects_missing_model_for_execution() -> None:
 
 def test_smoke_uses_sync_runner_and_accepts_structured_result() -> None:
     smoke = _load_smoke_module()
-    calls: list[tuple[object, str, int]] = []
+    calls: list[tuple[object, str, int, object]] = []
 
     class FakeRunner:
         @staticmethod
         def run_sync(agent, prompt, *, max_turns, run_config):
-            calls.append((agent, prompt, max_turns))
+            calls.append((agent, prompt, max_turns, run_config))
             assert run_config.model == "review-model"
+            assert run_config.model_settings is not None
+            assert run_config.model_settings.timeout == 15.0
+            assert run_config.model_settings.retry is not None
+            assert run_config.model_settings.retry.max_retries == 0
+            assert agent.tools == []
+            assert prompt == "Reply with a readiness acknowledgement only."
             return SimpleNamespace(final_output={"status": "ready"})
 
     settings = Settings(review_model="review-model")
