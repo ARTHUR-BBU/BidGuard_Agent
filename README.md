@@ -14,10 +14,11 @@ BidGuard Agent 是一个面向政府采购和企业招标团队的提交前质�
 - Task 8：OpenAI 与 EasyRouter 的显式模型通道；
 - Task 8A：ReviewContext、Coverage、预算、授权、冲突阻断和调用台账；
 - Task 9 程序化部分：带引用门禁的要求提取、历史保留、失败记账。
+- Task 10 程序化部分：受控页面读取、投标/企业证据检索、Assessment 候选、人工确认请求和 ActionItem 工具。
 
 验证结果：后端全量测试 `261 passed`，Ruff 和 Mypy 通过；Task 9 独立复核 `Ready = Yes`。
 
-尚未完成：真实业务文本的模型质量评测、完整招标包覆盖、投标响应核查、人工决定闭环、完整前端审核流程和报告导出。当前不能宣传为自动投标、自动签章或中标保证工具。
+尚未完成：真实业务文本的模型质量评测、完整招标包覆盖、完整 Review Agent 编排、人工决定闭环、完整前端审核流程和报告导出。当前不能宣传为自动投标、自动签章或中标保证工具。
 
 ## 核心原则
 
@@ -30,7 +31,7 @@ BidGuard Agent 是一个面向政府采购和企业招标团队的提交前质�
 ```text
 文件版本 → 可定位解析 → 项目范围检索 → ReviewContext
         → 受限 Agent → 引用门禁 → Requirement
-        → 证据工具 → Assessment → 人工确认/复核
+        → 受控证据工具 → Assessment 候选 → 人工确认/复核
 ```
 
 详细阶段复盘见：[Task 1—9 阶段复盘](docs/development-review-task1-9.md)。

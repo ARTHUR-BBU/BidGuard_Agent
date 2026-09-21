@@ -14,10 +14,11 @@ Completed:
 - Task 8: explicit OpenAI and EasyRouter model-provider boundaries;
 - Task 8A: `ReviewContext`, coverage, budgets, authorizations, conflict blocking, and a model-call ledger;
 - Task 9 programmatic scope: cited requirement extraction, history preservation, and failure logging.
+- Task 10 programmatic scope: guarded page reads, proposal/company evidence search, candidate Assessments, confirmation requests, and ActionItem tools.
 
 Verification: `261 passed` backend tests, Ruff and Mypy pass, and the independent Task 9 review returned `Ready = Yes`.
 
-Not completed: real-business model-quality evaluation, complete tender-package coverage, proposal/evidence assessment, human-decision workflow, the complete review UI, and report export. The current MVP must not be described as an automatic submission, signing, or winning-guarantee product.
+Not completed: real-business model-quality evaluation, complete tender-package coverage, full Review Agent orchestration, human-decision workflow, the complete review UI, and report export. The current MVP must not be described as an automatic submission, signing, or winning-guarantee product.
 
 ## Core principle
 
@@ -30,7 +31,7 @@ The model is not the permission system, database, factual adjudicator, or submis
 ```text
 Document version → traceable parsing → scoped retrieval → ReviewContext
                 → bounded Agent → citation gate → Requirement
-                → evidence tools → Assessment → human confirmation/review
+                → guarded evidence tools → Assessment candidate → human confirmation/review
 ```
 
 Read the detailed [Task 1–9 development review](docs/development-review-task1-9.md).

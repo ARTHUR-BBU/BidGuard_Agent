@@ -1069,7 +1069,7 @@ git commit -m "feat: extract cited tender requirements"
 - Extend: `backend/app/agents/gates.py`
 - Create: `backend/tests/test_review_tools.py`
 
-- [ ] **Step 1: Write failing tool tests**
+- [x] **Step 1: Write failing tool tests**
 
 Test exact tool contracts:
 
@@ -1084,11 +1084,11 @@ create_action_item(requirement_id, title, recommendation)
 
 Assert project scoping prevents reading another project, company evidence search includes only documents explicitly selected for the project, and `save_assessment` rejects `MATCHED` when the evidence list is empty.
 
-- [ ] **Step 2: Implement read tools**
+- [x] **Step 2: Implement read tools**
 
 Wrap service functions with the SDK tool decorator. Each tool returns compact structured data containing version id, page/section, quote, and score. Do not return an entire document.
 
-- [ ] **Step 3: Implement write tools with gates**
+- [x] **Step 3: Implement write tools with gates**
 
 Before saving an assessment:
 
@@ -1102,7 +1102,7 @@ def validate_assessment(candidate: AssessmentCandidate, active_versions: set[int
 
 Calculate display status with `calculate_display_status`; ignore any display-status text proposed by the model.
 
-- [ ] **Step 4: Run tests and commit**
+- [x] **Step 4: Run tests and commit**
 
 ```powershell
 uv run pytest tests/test_review_tools.py tests/test_agent_gates.py -v

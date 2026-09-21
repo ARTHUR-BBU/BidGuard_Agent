@@ -5,7 +5,8 @@ import unicodedata
 from collections.abc import Iterable
 from dataclasses import dataclass
 
-from app.domain.schemas import RequirementCandidate
+from app.domain.enums import EvidenceState
+from app.domain.schemas import AssessmentCandidate, RequirementCandidate
 
 
 class CitationGateError(ValueError):
@@ -14,6 +15,14 @@ class CitationGateError(ValueError):
     def __init__(self, code: str, message: str | None = None) -> None:
         self.code = code
         super().__init__(message or code)
+
+
+class UnsupportedPassError(ValueError):
+    code = "unsupported_pass"
+
+
+class StaleEvidenceError(ValueError):
+    code = "stale_evidence"
 
 
 @dataclass(frozen=True, slots=True)
@@ -94,3 +103,22 @@ def validate_requirement_candidate(
     ):
         raise CitationGateError("quote_not_found")
     return ValidatedRequirement(candidate=candidate, fingerprint=requirement_fingerprint(candidate))
+
+
+def validate_assessment(
+    candidate: AssessmentCandidate,
+    active_versions: set[int],
+) -> AssessmentCandidate:
+    """Reject unsupported passes and citations outside active evidence scope."""
+
+    if (
+        candidate.evidence_state is EvidenceState.MATCHED
+        and not candidate.evidence
+    ):
+        raise UnsupportedPassError("matched assessment requires evidence")
+    if any(
+        citation.document_version_id not in active_versions
+        for citation in candidate.evidence
+    ):
+        raise StaleEvidenceError("assessment cites an inactive document version")
+    return candidate
