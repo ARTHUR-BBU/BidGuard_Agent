@@ -133,7 +133,7 @@ bid-guard-agent/
 - Create: `scripts/dev.ps1`
 - Modify: `README.md`
 
-- [ ] **Step 1: Initialize the backend package**
+- [x] **Step 1: Initialize the backend package**
 
 Run:
 
@@ -147,7 +147,7 @@ uv add --dev pytest pytest-asyncio httpx ruff mypy
 
 Expected: `backend/pyproject.toml` and `backend/uv.lock` exist; no OpenAI request is made.
 
-- [ ] **Step 2: Write the failing health test**
+- [x] **Step 2: Write the failing health test**
 
 Create `backend/tests/test_health.py`:
 
@@ -166,13 +166,13 @@ def test_health_reports_ready() -> None:
     assert response.json() == {"status": "ready", "service": "bid-guard-api"}
 ```
 
-- [ ] **Step 3: Run the health test and verify failure**
+- [x] **Step 3: Run the health test and verify failure**
 
 Run: `uv run pytest tests/test_health.py -v`
 
 Expected: FAIL because `app.main` does not exist.
 
-- [ ] **Step 4: Implement settings, route, and app factory**
+- [x] **Step 4: Implement settings, route, and app factory**
 
 Create `backend/app/settings.py`:
 
@@ -235,7 +235,7 @@ def create_app() -> FastAPI:
 app = create_app()
 ```
 
-- [ ] **Step 5: Run backend checks**
+- [x] **Step 5: Run backend checks**
 
 Run:
 
@@ -246,7 +246,7 @@ uv run ruff check app tests
 
 Expected: PASS; Ruff reports no errors.
 
-- [ ] **Step 6: Scaffold and verify the frontend**
+- [x] **Step 6: Scaffold and verify the frontend**
 
 Run from repository root:
 
@@ -261,7 +261,7 @@ npm run build
 
 Expected: Vite production build succeeds.
 
-- [ ] **Step 7: Add safe environment template and development launcher**
+- [x] **Step 7: Add safe environment template and development launcher**
 
 Create `.env.example`:
 
@@ -286,11 +286,11 @@ Write-Host "BidGuard web: http://localhost:5173"
 
 Do not put real secrets in `.env.example`.
 
-- [ ] **Step 8: Update the project README with verified commands**
+- [x] **Step 8: Update the project README with verified commands**
 
 Add exact setup, test, and development commands for both packages. State that live Agent execution requires a separately approved key decision.
 
-- [ ] **Step 9: Commit the foundation**
+- [x] **Step 9: Commit the foundation**
 
 ```powershell
 git add backend frontend scripts .env.example README.md
@@ -305,7 +305,7 @@ git commit -m "chore: scaffold BidGuard full-stack app"
 - Create: `backend/app/domain/status_rules.py`
 - Create: `backend/tests/test_status_rules.py`
 
-- [ ] **Step 1: Write failing status-rule tests**
+- [x] **Step 1: Write failing status-rule tests**
 
 Create `backend/tests/test_status_rules.py`:
 
@@ -341,13 +341,13 @@ def test_missing_evidence_can_never_be_satisfied() -> None:
     assert result is not DisplayStatus.SATISFIED
 ```
 
-- [ ] **Step 2: Run tests and verify import failure**
+- [x] **Step 2: Run tests and verify import failure**
 
 Run: `uv run pytest tests/test_status_rules.py -v`
 
 Expected: FAIL because domain modules do not exist.
 
-- [ ] **Step 3: Implement stable enums**
+- [x] **Step 3: Implement stable enums**
 
 Create `backend/app/domain/enums.py`:
 
@@ -402,7 +402,7 @@ class ReviewRunStatus(StrEnum):
     FAILED = "failed"
 ```
 
-- [ ] **Step 4: Implement the deterministic status function**
+- [x] **Step 4: Implement the deterministic status function**
 
 Create `backend/app/domain/status_rules.py`:
 
@@ -427,7 +427,7 @@ def calculate_display_status(
     return DisplayStatus.SATISFIED
 ```
 
-- [ ] **Step 5: Add shared structured schemas**
+- [x] **Step 5: Add shared structured schemas**
 
 Create `backend/app/domain/schemas.py` with exact models used by both API and Agent code:
 
@@ -466,7 +466,7 @@ class AssessmentCandidate(BaseModel):
     recommendation: str = Field(default="", max_length=4000)
 ```
 
-- [ ] **Step 6: Run tests and commit**
+- [x] **Step 6: Run tests and commit**
 
 ```powershell
 uv run pytest tests/test_status_rules.py -v
@@ -487,7 +487,7 @@ Expected: all tests pass.
 - Create: `backend/tests/test_persistence.py`
 - Modify: `backend/app/main.py`
 
-- [ ] **Step 1: Write a failing traceability test**
+- [x] **Step 1: Write a failing traceability test**
 
 Create `backend/tests/test_persistence.py`:
 
@@ -516,13 +516,13 @@ def test_requirement_points_to_exact_tender_version(db_session) -> None:
     assert requirement.source_page == 12
 ```
 
-- [ ] **Step 2: Run and verify failure**
+- [x] **Step 2: Run and verify failure**
 
 Run: `uv run pytest tests/test_persistence.py -v`
 
 Expected: FAIL because persistence models do not exist.
 
-- [ ] **Step 3: Implement database session lifecycle**
+- [x] **Step 3: Implement database session lifecycle**
 
 Create `backend/app/db.py`:
 
@@ -554,7 +554,7 @@ def get_db() -> Generator[Session, None, None]:
         yield session
 ```
 
-- [ ] **Step 4: Implement exact SQLAlchemy entities**
+- [x] **Step 4: Implement exact SQLAlchemy entities**
 
 Create `backend/app/persistence/models.py`. Include these tables and foreign keys:
 
@@ -651,7 +651,7 @@ class EvidenceLink(Base):
 
 Define all relationships named exactly as used by tests: `BidProject.documents`, `Document.project`, `Document.versions`, `DocumentVersion.document`, `Requirement.project`, and `Requirement.source_version`.
 
-- [ ] **Step 5: Add isolated test database fixture**
+- [x] **Step 5: Add isolated test database fixture**
 
 Create `backend/tests/conftest.py`:
 
@@ -676,11 +676,11 @@ def db_session():
         yield session
 ```
 
-- [ ] **Step 6: Bootstrap schema in FastAPI lifespan**
+- [x] **Step 6: Bootstrap schema in FastAPI lifespan**
 
 Modify `backend/app/main.py` to call `Base.metadata.create_all(engine)` inside an async lifespan context before serving requests.
 
-- [ ] **Step 7: Run persistence tests and commit**
+- [x] **Step 7: Run persistence tests and commit**
 
 ```powershell
 uv run pytest tests/test_persistence.py -v
@@ -699,7 +699,7 @@ git commit -m "feat: add traceable BidGuard data model"
 - Create: `backend/tests/test_projects_api.py`
 - Modify: `backend/app/main.py`
 
-- [ ] **Step 1: Write failing project API tests**
+- [x] **Step 1: Write failing project API tests**
 
 Cover `POST /api/projects`, `GET /api/projects`, and `GET /api/projects/{id}`. Assert that a new project returns zero counts for all five display statuses and preserves an optional ISO-8601 deadline.
 
@@ -717,17 +717,17 @@ assert response.json()["status_counts"] == {
 }
 ```
 
-- [ ] **Step 2: Run tests and verify 404 failures**
+- [x] **Step 2: Run tests and verify 404 failures**
 
 Run: `uv run pytest tests/test_projects_api.py -v`
 
 Expected: FAIL because project routes are absent.
 
-- [ ] **Step 3: Implement project service and routes**
+- [x] **Step 3: Implement project service and routes**
 
 Use Pydantic request/response models in `domain/schemas.py`. Keep SQL in `services/projects.py`, not in route functions. Sort project lists by nearest deadline, then newest creation time.
 
-- [ ] **Step 4: Run tests and commit**
+- [x] **Step 4: Run tests and commit**
 
 ```powershell
 uv run pytest tests/test_projects_api.py -v
@@ -744,7 +744,7 @@ git commit -m "feat: add bid project API"
 - Create: `backend/tests/test_document_versions.py`
 - Modify: `backend/app/main.py`
 
-- [ ] **Step 1: Write failing storage and version tests**
+- [x] **Step 1: Write failing storage and version tests**
 
 Create five named tests with these exact assertions:
 
@@ -754,13 +754,13 @@ Create five named tests with these exact assertions:
 - `test_storage_path_stays_inside_configured_root`: a filename containing `..\\` still resolves beneath the configured storage root;
 - `test_company_document_can_be_reused_without_project_id`: company evidence is created without a project id and can be selected by two projects without duplicating the stored file.
 
-- [ ] **Step 2: Run tests and verify failure**
+- [x] **Step 2: Run tests and verify failure**
 
 Run: `uv run pytest tests/test_document_versions.py -v`
 
 Expected: FAIL because upload service is absent.
 
-- [ ] **Step 3: Implement storage safety**
+- [x] **Step 3: Implement storage safety**
 
 In `storage.py`:
 
@@ -785,7 +785,7 @@ def safe_storage_path(root: Path, digest: str, original_name: str) -> Path:
 
 Reject empty files and content larger than `MAX_UPLOAD_BYTES`. Never use the client filename as a directory component.
 
-- [ ] **Step 4: Implement upload endpoints**
+- [x] **Step 4: Implement upload endpoints**
 
 Add:
 
@@ -797,7 +797,7 @@ GET  /api/projects/{project_id}/documents
 
 Return document id, version id, version number, SHA-256, parse status, and upload time. Re-uploading identical bytes returns the existing version with `created=false`.
 
-- [ ] **Step 5: Run tests and commit**
+- [x] **Step 5: Run tests and commit**
 
 ```powershell
 uv run pytest tests/test_document_versions.py -v
