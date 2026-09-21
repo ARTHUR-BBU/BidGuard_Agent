@@ -1054,7 +1054,7 @@ Use `backend/tests/fixtures/sample-tender.pdf`. Verify at least one known requir
 
 While the product supports only one active tender file, label this result as a **single-file bounded extraction evaluation**. It must not be reported as complete tender-package coverage.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```powershell
 uv run pytest tests/test_agent_gates.py tests/test_requirement_extraction.py -v
