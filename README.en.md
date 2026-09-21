@@ -16,7 +16,7 @@ Completed:
 - Task 9 programmatic scope: cited requirement extraction, history preservation, and failure logging.
 - Task 10 programmatic scope: guarded page reads, proposal/company evidence search, candidate Assessments, confirmation requests, and ActionItem tools.
 
-Verification: `261 passed` backend tests, Ruff and Mypy pass, and the independent Task 9 review returned `Ready = Yes`.
+Verification: `268 passed` backend tests, Ruff and Mypy pass, the independent Task 9 review returned `Ready = Yes`, and Task 10's programmatic tool gates are implemented.
 
 Not completed: real-business model-quality evaluation, complete tender-package coverage, full Review Agent orchestration, human-decision workflow, the complete review UI, and report export. The current MVP must not be described as an automatic submission, signing, or winning-guarantee product.
 

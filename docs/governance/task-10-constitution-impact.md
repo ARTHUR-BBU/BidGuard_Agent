@@ -29,6 +29,6 @@ Task 10 让 Agent 获得了有限的读工具和候选写工具，因此改变�
 
 ## 测试证据
 
-- Task 10 专项测试 **6 项通过**，覆盖项目范围、页面读取、proposal/company 检索、未授权企业资料、unsupported pass、过期证据、服务端状态计算、确认请求、ActionItem 和 SDK tool wrapper。
-- 全量测试通过 **267 项**；Ruff 与 Mypy 通过。
+- Task 10 专项测试 **7 项通过**，覆盖项目范围、页面读取、未解析版本拒绝、proposal/company 检索、未授权企业资料、unsupported pass、过期证据、服务端状态计算、确认请求、ActionItem 和 SDK tool wrapper。
+- 全量测试通过 **268 项**；Ruff 与 Mypy 通过。
 - 本阶段仍只证明程序化工具边界，不证明真实模型业务质量。

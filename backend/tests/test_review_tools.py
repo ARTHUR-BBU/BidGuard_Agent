@@ -190,6 +190,15 @@ def test_company_search_uses_only_explicit_project_authorization(db_session) -> 
     assert {item["document_version_id"] for item in results} == {company_version.id}
 
 
+def test_page_read_rejects_unparsed_document_version(db_session) -> None:
+    _, _, _, proposal_version, _, context = _setup(db_session)
+    proposal_version.parse_status = "failed"
+    toolbox = ReviewToolbox(db_session, context)
+
+    with pytest.raises(ValueError, match="not available"):
+        toolbox.get_document_page(proposal_version.id, 1)
+
+
 def test_save_assessment_rejects_unsupported_matched_pass(db_session) -> None:
     _, _, requirement, _, _, context = _setup(db_session)
     toolbox = ReviewToolbox(db_session, context)

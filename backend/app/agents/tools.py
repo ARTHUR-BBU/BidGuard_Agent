@@ -131,7 +131,9 @@ class ReviewToolbox:
 
         if page_number < 1:
             raise ToolValidationError("page number must be positive")
-        self._require_version(document_version_id)
+        version, _ = self._require_version(document_version_id)
+        if version.parse_status not in {"parsed", "partial_failure"}:
+            raise ToolScopeError("document version is not available for evidence reading")
         chunks = self.session.scalars(
             select(DocumentChunk)
             .where(
@@ -268,6 +270,8 @@ class ReviewToolbox:
         if citation.document_version_id not in self._allowed_versions:
             raise StaleEvidenceError("assessment cites an inactive document version")
         version, document = self._require_version(citation.document_version_id)
+        if version.parse_status not in {"parsed", "partial_failure"}:
+            raise ToolScopeError("document version is not available for evidence reading")
         if document.role not in {"proposal", "company"}:
             raise ToolValidationError("assessment evidence must come from proposal or company documents")
         if citation.page_number is None and citation.section_path is None:
@@ -337,6 +341,7 @@ class ReviewToolbox:
             assessment.needs_confirmation = candidate_model.needs_confirmation
             assessment.reasoning = candidate_model.reasoning
             assessment.recommendation = candidate_model.recommendation
+            assessment.current = True
         for citation in candidate_model.evidence:
             self.session.add(
                 EvidenceLink(

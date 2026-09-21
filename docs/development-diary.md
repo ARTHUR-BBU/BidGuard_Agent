@@ -61,7 +61,7 @@ Task 10 仍然没有把完整审核流程交给模型。当前只是把工具箱
 
 ### 给您的交代
 
-- Task 10 专项测试 **6 项通过**；全量测试 **267 项通过**；Ruff 与 Mypy 通过。
+- Task 10 专项测试 **7 项通过**；全量测试 **268 项通过**；Ruff 与 Mypy 通过。
 - `Constitution impact: Yes` 已单独记录在 `docs/governance/task-10-constitution-impact.md`。
 - 这一阶段没有执行真实业务模型调用，也没有修改真实 `backend/bidguard.db`。
 
