@@ -1,45 +1,64 @@
 # BidGuard Agent
 
-BidGuard Agent 面向参与政府采购或企业招标的中小型软件与 IT 服务公司，帮助团队先把投标文件中的合规要点、风险和待确认事项看清楚。
+> 中文说明 | [English README](README.en.md)
 
-现在已具备可验证的前后端骨架、投标项目 API、安全的版本化文件上传、可追溯数据模型、旧 SQLite 自动迁移，以及带来源位置和覆盖范围声明的 PDF/DOCX 解析。检索、Agent 核查、人工确认与完整 UI 仍按计划逐步开发；尚未发送业务文档文本，也尚未证明真实业务审核质量。
+BidGuard Agent 是一个面向政府采购和企业招标团队的提交前质量门。它的目标不是承诺中标，而是把招标要求、投标响应、企业资料和审核依据组织成可追溯的要求矩阵，帮助团队发现缺失、矛盾、歧义和潜在失分点。
 
-## 项目治理总纲
+## 当前状态
 
-BidGuard 的设计、开发、模型调用、测试和评审受以下两份正式规范约束：
+已完成：
 
-- [BidGuard Constitution / BidGuard 项目宪法](docs/governance/bidguard-constitution.md)
-- [LLM 在 BidGuard 中的定位、权限与分阶段开发规范](docs/governance/llm-position-authority-phased-development.md)
-- [开发日记（面向非技术项目所有者的第二本账）](docs/development-diary.md)
+- Task 1—5：可运行工程、领域状态、可追溯数据库、项目 API、安全版本化上传；
+- Task 6：保留页码/章节和 Coverage 的 PDF/DOCX 解析；
+- Task 7：有项目和版本边界的确定性证据检索；
+- Task 8：OpenAI 与 EasyRouter 的显式模型通道；
+- Task 8A：ReviewContext、Coverage、预算、授权、冲突阻断和调用台账；
+- Task 9 程序化部分：带引用门禁的要求提取、历史保留、失败记账。
 
-简要原则：招标原文定义要求，当前证据支撑事实，LLM 负责理解与质疑，程序负责验证与制衡，人工负责承诺与最终提交。任何扩大模型权限、改变证据或正式状态定义、削弱人工确认与审计门禁的修改，都必须显式进行 `Constitution impact` 审查。
+验证结果：后端全量测试 `261 passed`，Ruff 和 Mypy 通过；Task 9 独立复核 `Ready = Yes`。
+
+尚未完成：真实业务文本的模型质量评测、完整招标包覆盖、投标响应核查、人工决定闭环、完整前端审核流程和报告导出。当前不能宣传为自动投标、自动签章或中标保证工具。
+
+## 核心原则
+
+> 招标原文定义要求，当前证据支撑事实，LLM 负责理解与质疑，程序负责验证与制衡，人工负责承诺与最终提交。
+
+模型不是权限系统、数据库、事实裁判或提交责任主体。正式状态由服务端规则计算，模型输出必须经过项目、版本、引用、Coverage 和权限门禁。
+
+## 架构位置
+
+```text
+文件版本 → 可定位解析 → 项目范围检索 → ReviewContext
+        → 受限 Agent → 引用门禁 → Requirement
+        → 证据工具 → Assessment → 人工确认/复核
+```
+
+详细阶段复盘见：[Task 1—9 阶段复盘](docs/development-review-task1-9.md)。
+
+治理总纲：
+
+- [BidGuard Constitution](docs/governance/bidguard-constitution.md)
+- [LLM 定位、权限与分阶段开发规范](docs/governance/llm-position-authority-phased-development.md)
+- [开发日记](docs/development-diary.md)
 
 ## 准备环境
 
-请先安装：
+需要 Python 3.14、[uv](https://docs.astral.sh/uv/) 和 Node.js LTS。
 
-- Python 3.14 与 [uv](https://docs.astral.sh/uv/)
-- Node.js（建议使用当前 LTS 版本）
-
-如需为未来的 live Agent 运行配置模型，在仓库根目录复制 `.env.example` 的内容到 `backend/.env.local`，再按另行批准的方式填写 API Key。当前健康检查和前端构建不会调用模型，也不需要 API Key。
+模型 API Key 只通过受控环境配置。健康检查、文件解析和确定性检索不需要 API Key。真实业务文本调用必须经过单独的范围、凭据和评测确认。
 
 ## 后端
 
 ```powershell
 cd backend
 uv sync
-uv run pytest tests/test_health.py -v
+uv run pytest -q
 uv run ruff check app tests
+uv run mypy app
 uv run uvicorn app.main:app --reload --port 8000
 ```
 
-启动后可访问 <http://localhost:8000/api/health>，应返回服务已就绪的信息。
-
-### 本地数据库升级
-
-后端启动时会自动检查本地 SQLite 数据库。早期开发版数据库如果只是缺少文档内容指纹和对应的唯一性约束，BidGuard 会在一个事务中补齐字段、回填公司资料的内容指纹，并增加防重复约束；已是新结构的数据库不会被重复修改。
-
-自动升级不会擅自删除或合并记录。如果旧数据存在同一项目同类文件重复、同一公司资料内容重复、公司资料并非恰好只有一个版本，或文档归属关系不合法，应用会在启动阶段停止，并列出需要处理的记录，而不是等到上传接口报错。正式或重要数据仍建议在升级前备份。这个轻量升级只面向当前 MVP 的 SQLite 旧结构；PostgreSQL 等服务型数据库不会执行 SQLite 专用语句，后续正式部署应使用独立的版本化迁移工具。
+健康检查：<http://localhost:8000/api/health>
 
 ## 前端
 
@@ -50,24 +69,23 @@ npm run build
 npm run dev -- --port 5173
 ```
 
-开发页面地址为 <http://localhost:5173>。
-
-## 当前前端验证
-
-当前尚未配置自动化前端测试脚本；该能力会在后续的 UI 测试任务中加入。现在前端可执行的验证方式是：
-
-```powershell
-cd frontend
-npm run build
-```
+开发页面：<http://localhost:5173>
 
 ## 一次启动前后端
-
-在仓库根目录运行：
 
 ```powershell
 .\scripts\dev.ps1
 ```
 
-该命令会在后台启动后端和前端，并打印两个访问地址。
+## 目录说明
 
+- `backend/app/documents/`：安全存储、解析和确定性检索；
+- `backend/app/agents/`：模型供应商、上下文、治理、要求提取和后续工具；
+- `backend/app/services/`：项目、上传、要求持久化等业务服务；
+- `backend/tests/`：确定性、对抗式和 Agent 合约测试；
+- `docs/governance/`：项目宪法、LLM 规范和 Constitution impact 记录；
+- `docs/development-review-task1-9.md`：阶段性开发复盘。
+
+## 开发边界
+
+当前是单用户、受信任本地工作区 MVP。多租户认证、外部系统写入、自动提交、签章、审批、付款和自动供应商切换都需要单独的权限设计、人工确认和治理审查。
