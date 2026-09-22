@@ -5,6 +5,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from sqlalchemy.orm import sessionmaker
 
+from .api.decisions import router as decisions_router
 from .api.documents import router as documents_router
 from .api.health import router as health_router
 from .api.projects import router as projects_router
@@ -45,6 +46,7 @@ def create_app() -> FastAPI:
     application.include_router(projects_router, prefix="/api")
     application.include_router(documents_router, prefix="/api")
     application.include_router(reviews_router, prefix="/api")
+    application.include_router(decisions_router, prefix="/api")
     return application
 
 

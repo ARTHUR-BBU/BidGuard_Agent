@@ -17,10 +17,11 @@ Completed:
 - Task 10 programmatic scope: guarded page reads, proposal/company evidence search, candidate Assessments, confirmation requests, and ActionItem tools.
 - Task 11 programmatic scope: per-requirement bounded Review Agent runs, Assessment persistence, human-confirmation handling, and resumable progress on failure.
 - Task 12: persisted ReviewJobs, a single-process background Worker, interrupted-job recovery, review status APIs, and requirement detail APIs.
+- Task 13: human decisions, action-item completion, version-impact calculation, and incremental review enqueueing.
 
-Verification: `277 passed` backend tests, Ruff and Mypy pass, the independent Task 9 review returned `Ready = Yes`, and Task 10's tool gates, Task 11's orchestration gates, and Task 12's Worker regression suite are implemented.
+Verification: `285 passed` backend tests, Ruff and Mypy pass, the independent Task 9 review returned `Ready = Yes`, and Task 10's tool gates, Task 11's orchestration gates, Task 12's Worker regression suite, and Task 13's incremental-review regressions are implemented.
 
-Not completed: real-business model-quality evaluation, complete tender-package coverage, human-decision workflow, the complete review UI, and report export. The current MVP must not be described as an automatic submission, signing, or winning-guarantee product.
+Not completed: real-business model-quality evaluation, complete tender-package coverage, the complete review UI, and report export. The current MVP must not be described as an automatic submission, signing, or winning-guarantee product.
 
 ## Core principle
 
@@ -42,12 +43,15 @@ Read the [Task 11 review: from guarded tools to governed orchestration](docs/dev
 
 Read the [Task 12 review: persistent worker and handoff](docs/development-review-task12.md).
 
+Read the [Task 13 review: human decisions and incremental review](docs/development-review-task13.md).
+
 Governance documents:
 
 - [BidGuard Constitution](docs/governance/bidguard-constitution.md)
 - [LLM positioning, authority, and phased development standard](docs/governance/llm-position-authority-phased-development.md)
 - [Task 11 Constitution Impact](docs/governance/task-11-constitution-impact.md)
 - [Task 12 Constitution Impact](docs/governance/task-12-constitution-impact.md)
+- [Task 13 Constitution Impact](docs/governance/task-13-constitution-impact.md)
 - [Development diary](docs/development-diary.md)
 
 ## Prerequisites
@@ -96,6 +100,7 @@ Development page: <http://localhost:5173>
 - `docs/development-review-task1-9.md`: stage-by-stage development review.
 - `docs/development-review-task11.md`: Task 11 bounded-review orchestration review.
 - `docs/development-review-task12.md`: Task 12 persisted-worker review.
+- `docs/development-review-task13.md`: Task 13 human-decision and incremental-review review.
 
 ## Development boundaries
 

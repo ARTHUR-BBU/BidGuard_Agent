@@ -25,6 +25,7 @@ from app.persistence.models import (
     ActionItem,
     Assessment,
     AuditEvent,
+    Decision,
     Document,
     DocumentChunk,
     DocumentVersion,
@@ -370,6 +371,45 @@ class ReviewToolbox:
         reason = reason.strip()
         if not question or not reason or len(question) > 2000 or len(reason) > 2000:
             raise ToolValidationError("confirmation question and reason are required and bounded")
+        requirement = self.session.get(Requirement, requirement_id)
+        assessment = self.session.scalar(
+            select(Assessment)
+            .where(
+                Assessment.requirement_id == requirement_id,
+                Assessment.current.is_(True),
+            )
+            .order_by(Assessment.id.desc())
+            .limit(1)
+        )
+        pending = self.session.scalar(
+            select(Decision)
+            .where(
+                Decision.requirement_id == requirement_id,
+                Decision.review_run_id == self.context.review_run_id,
+                Decision.decision == "pending",
+            )
+            .order_by(Decision.id.desc())
+            .limit(1)
+        )
+        if pending is None:
+            version_ids = {int(requirement.source_version_id)} if requirement else set()
+            if assessment is not None:
+                version_ids.update(
+                    int(link.document_version_id)
+                    for link in assessment.evidence_links
+                    if link.document_version_id is not None
+                )
+            pending = Decision(
+                requirement_id=requirement_id,
+                decision="pending",
+                explanation=f"{question}\n\n{reason}",
+                actor="agent",
+                review_run_id=self.context.review_run_id,
+                assessment_id=assessment.id if assessment is not None else None,
+                version_ids=sorted(version_ids),
+            )
+            self.session.add(pending)
+            self.session.flush()
         event = AuditEvent(
             project_id=self.context.project_id,
             event_type="user_confirmation_requested",
@@ -378,6 +418,7 @@ class ReviewToolbox:
                 "requirement_id": requirement_id,
                 "question": question,
                 "reason": reason,
+                "decision_id": pending.id,
             },
         )
         self.session.add(event)
