@@ -19,7 +19,7 @@ Completed:
 - Task 12: persisted ReviewJobs, a single-process background Worker, interrupted-job recovery, review status APIs, and requirement detail APIs.
 - Task 13: human decisions, action-item completion, version-impact calculation, and incremental review enqueueing.
 
-Verification: `285 passed` backend tests, Ruff and Mypy pass, the independent Task 9 review returned `Ready = Yes`, and Task 10's tool gates, Task 11's orchestration gates, Task 12's Worker regression suite, and Task 13's incremental-review regressions are implemented.
+Verification: `287 passed` backend tests, Ruff and Mypy pass, the independent Task 9 review returned `Ready = Yes`, and Task 10's tool gates, Task 11's orchestration gates, Task 12's Worker regression suite, and Task 13's incremental-review regressions are implemented.
 
 Not completed: real-business model-quality evaluation, complete tender-package coverage, the complete review UI, and report export. The current MVP must not be described as an automatic submission, signing, or winning-guarantee product.
 
