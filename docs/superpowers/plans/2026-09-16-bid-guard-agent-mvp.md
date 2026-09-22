@@ -1265,17 +1265,17 @@ git commit -m "feat: add human decisions and incremental reviews"
 **Files:**
 - Create: `frontend/src/api/types.ts`
 - Create: `frontend/src/api/client.ts`
-- Replace: `frontend/src/app.tsx`
-- Replace: `frontend/src/styles.css`
+- Replace: `frontend/src/App.tsx` (repository uses uppercase filename)
+- Replace: `frontend/src/App.css` and `frontend/src/index.css`
 - Create: `frontend/src/components/status-badge.tsx`
 - Create: `frontend/tests/setup.ts`
 - Modify: `frontend/vite.config.ts`
 
-- [ ] **Step 1: Configure Vitest and write a failing status-badge test**
+- [x] **Step 1: Configure Vitest and write a failing status-badge test**
 
 Assert all five backend display statuses render the approved Chinese labels and use text plus color, not color alone.
 
-- [ ] **Step 2: Implement exact frontend types**
+- [x] **Step 2: Implement exact frontend types**
 
 Mirror backend wire values without redefining business rules:
 
@@ -1296,15 +1296,15 @@ export const STATUS_LABEL: Record<DisplayStatus, string> = {
 };
 ```
 
-- [ ] **Step 3: Implement API error handling**
+- [x] **Step 3: Implement API error handling**
 
 `api/client.ts` must throw a typed `ApiError` containing status, code, and user-safe message. It must support JSON and `FormData` requests and never include secrets in browser code.
 
-- [ ] **Step 4: Build the shell**
+- [x] **Step 4: Build the shell**
 
 Create a restrained sidebar with only: `新建核查`, `投标项目`, and `企业资料库`. Add React Router routes for `/projects`, `/projects/new`, `/projects/:id/review`, `/requirements/:id`, and `/evidence`.
 
-- [ ] **Step 5: Verify and commit**
+- [x] **Step 5: Verify and commit**
 
 ```powershell
 npm test -- --run
