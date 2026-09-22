@@ -503,14 +503,36 @@ class AuditEvent(Base):
 
 class ReviewJob(Base):
     __tablename__ = "review_jobs"
+    __table_args__ = (
+        CheckConstraint(
+            "attempt_count >= 0", name="ck_review_jobs_attempt_nonnegative"
+        ),
+        CheckConstraint(
+            "version_fingerprint IS NULL OR length(version_fingerprint) = 64",
+            name="ck_review_jobs_fingerprint_length",
+        ),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     project_id: Mapped[int] = mapped_column(
         ForeignKey("bid_projects.id", ondelete="CASCADE"), nullable=False, index=True
     )
+    review_run_id: Mapped[int | None] = mapped_column(
+        ForeignKey("review_runs.id", ondelete="CASCADE"), index=True
+    )
+    tender_version_id: Mapped[int | None] = mapped_column(
+        ForeignKey("document_versions.id", ondelete="RESTRICT"), index=True
+    )
+    version_fingerprint: Mapped[str | None] = mapped_column(
+        String(64), index=True
+    )
+    version_ids: Mapped[list[int] | None] = mapped_column(JSON)
     status: Mapped[str] = mapped_column(String(40), nullable=False)
     stage: Mapped[str] = mapped_column(String(80), nullable=False)
     error: Mapped[str | None] = mapped_column(Text)
+    attempt_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    claimed_at: Mapped[datetime | None] = mapped_column(UTCDateTime())
+    finished_at: Mapped[datetime | None] = mapped_column(UTCDateTime())
     created_at: Mapped[datetime] = mapped_column(
         UTCDateTime(), default=utc_now, nullable=False
     )

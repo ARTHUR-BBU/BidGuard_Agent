@@ -117,6 +117,20 @@ def _migration_needed(connection: Connection) -> bool:
     }
     if "citation_fingerprint" not in requirement_columns:
         return True
+    review_job_columns = {
+        str(column["name"])
+        for column in inspect(connection).get_columns("review_jobs")
+    }
+    if not {
+        "review_run_id",
+        "tender_version_id",
+        "version_fingerprint",
+        "version_ids",
+        "attempt_count",
+        "claimed_at",
+        "finished_at",
+    }.issubset(review_job_columns):
+        return True
 
     document_uniques = _unique_column_sets(connection, "documents")
     version_uniques = _unique_column_sets(connection, "document_versions")
@@ -421,6 +435,25 @@ def _upgrade_legacy_sqlite(connection: Connection) -> None:
         connection.exec_driver_sql(
             "ALTER TABLE requirements ADD COLUMN citation_fingerprint VARCHAR(64)"
         )
+
+    review_job_columns = {
+        str(column["name"])
+        for column in inspect(connection).get_columns("review_jobs")
+    }
+    missing_review_job_columns = {
+        "review_run_id": "INTEGER",
+        "tender_version_id": "INTEGER",
+        "version_fingerprint": "VARCHAR(64)",
+        "version_ids": "JSON",
+        "attempt_count": "INTEGER NOT NULL DEFAULT 0",
+        "claimed_at": "DATETIME",
+        "finished_at": "DATETIME",
+    }
+    for column_name, column_type in missing_review_job_columns.items():
+        if column_name not in review_job_columns:
+            connection.exec_driver_sql(
+                f"ALTER TABLE review_jobs ADD COLUMN {column_name} {column_type}"
+            )
 
     connection.exec_driver_sql(
         """

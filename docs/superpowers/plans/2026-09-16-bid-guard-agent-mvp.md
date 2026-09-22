@@ -1169,15 +1169,15 @@ git commit -m "feat: orchestrate bounded evidence reviews"
 - Create: `backend/tests/test_review_jobs.py`
 - Modify: `backend/app/main.py`
 
-- [ ] **Step 1: Write failing job recovery tests**
+- [x] **Step 1: Write failing job recovery tests**
 
 Test that starting a review creates a queued job, a worker atomically claims one job, completed results persist, and jobs left `running` by a stopped process return to `queued` on application startup with an incremented attempt count.
 
-- [ ] **Step 2: Implement job table repository methods**
+- [x] **Step 2: Implement job table repository methods**
 
 Add repository operations `enqueue_job`, `claim_next_job`, `mark_job_complete`, `mark_job_failed`, and `requeue_interrupted_jobs`. Claim and state transition occur in one transaction.
 
-- [ ] **Step 3: Implement handlers**
+- [x] **Step 3: Implement handlers**
 
 Handlers execute exact stages:
 
@@ -1191,7 +1191,7 @@ set completed when all eligible requirements have assessments
 
 Persist stage names so the frontend never shows a fake percentage.
 
-- [ ] **Step 4: Add review API**
+- [x] **Step 4: Add review API**
 
 Add:
 
@@ -1204,11 +1204,11 @@ GET  /api/requirements/{requirement_id}
 
 Starting a duplicate review with the same active file versions returns the existing active job rather than creating another.
 
-- [ ] **Step 5: Wire worker into FastAPI lifespan**
+- [x] **Step 5: Wire worker into FastAPI lifespan**
 
 Start one asyncio worker task on startup; on shutdown, signal it to stop after its current database operation. Requeue interrupted jobs before accepting requests.
 
-- [ ] **Step 6: Test and commit**
+- [x] **Step 6: Test and commit**
 
 ```powershell
 uv run pytest tests/test_review_jobs.py -v
