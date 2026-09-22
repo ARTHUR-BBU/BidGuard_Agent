@@ -157,6 +157,39 @@ Task 11 已经让 Agent 按规矩逐条审核，但它仍像“坐在窗口前�
 
 详细复盘见：[Task 12 阶段复盘](development-review-task12.md)。
 
+## 第十章 · 把“待确认”接成人的决定，再按变化范围复核（09-22，Task 13）
+
+### 这次为什么做
+
+Task 12 可以让审核停在 `awaiting_confirmation`，但没有正式的人工确认、否决和“不适用”入口；材料更新后，也没有办法判断哪些旧结论已经过期。Task 13 把人的责任和版本变化重新接回审核证据链。
+
+### 这次做了什么（大白话）
+
+- **建立人工决定台**：`confirm`、`deny`、`not_applicable` 都要求责任人和解释，并留下审计事件；
+- **把 Agent 的待确认事项记下来**：`pending` Decision 不再只是一条聊天式事件，不能被静默删除；
+- **行动项有完成回执**：记录谁完成了什么、何时完成，但不把按钮点击冒充成合规证据；
+- **建立版本影响计算**：proposal、企业资料和 tender 变化时，只让受影响 Assessment 失效；
+- **保留历史、重新排队**：旧 Requirement、Assessment 和证据不删除，受影响 Requirement ID 先写入 ReviewRun，再交给 Worker。
+
+### 先说难堪的
+
+Task 13 不是简单增加三个接口。真正的难点是避免“人工确认”变成洗状态的按钮，也避免新版本上传后旧结论继续冒充当前结论。因此决定记录、EvidenceLink、Assessment.current、Requirement.active 和 ReviewRun.affected_requirement_ids 必须同时工作。
+
+### 给您的交代
+
+- Task 13 专项测试 **8 项通过**；
+- 后端全量测试 **285 项通过**；
+- Ruff、Mypy 通过；
+- 新增 Task 13 规格、阶段复盘和 Constitution Impact 文档；
+- `main` 已开启 PR、禁止强推和禁止删除保护；
+- 当前仍不能宣传为自动投标、自动提交、自动签章或中标保证系统。
+
+### 当前边界与下一步
+
+后端现在具备“发现问题 → 人作决定 → 材料变化 → 影响范围复核”的骨架，但还没有把任务阶段、决定、行动项和复核结果做成用户界面。下一步是 Task 14：建立类型化前端 API 客户端和应用壳层。
+
+详细复盘见：[Task 13 阶段复盘](development-review-task13.md)。
+
 ## 第二章 · 文件会说话，也会承认自己没看见（09-18，PR 号待补 · Task 6 文档解析收官）
 
 ### 先说难堪的

@@ -117,6 +117,29 @@ def _migration_needed(connection: Connection) -> bool:
     }
     if "citation_fingerprint" not in requirement_columns:
         return True
+    review_run_columns = {
+        str(column["name"])
+        for column in inspect(connection).get_columns("review_runs")
+    }
+    if "affected_requirement_ids" not in review_run_columns:
+        return True
+    action_item_columns = {
+        str(column["name"])
+        for column in inspect(connection).get_columns("action_items")
+    }
+    if "completed_by" not in action_item_columns:
+        return True
+    decision_columns = {
+        str(column["name"])
+        for column in inspect(connection).get_columns("decisions")
+    }
+    if not {
+        "actor",
+        "review_run_id",
+        "assessment_id",
+        "version_ids",
+    }.issubset(decision_columns):
+        return True
     review_job_columns = {
         str(column["name"])
         for column in inspect(connection).get_columns("review_jobs")
@@ -435,6 +458,40 @@ def _upgrade_legacy_sqlite(connection: Connection) -> None:
         connection.exec_driver_sql(
             "ALTER TABLE requirements ADD COLUMN citation_fingerprint VARCHAR(64)"
         )
+
+    review_run_columns = {
+        str(column["name"])
+        for column in inspect(connection).get_columns("review_runs")
+    }
+    if "affected_requirement_ids" not in review_run_columns:
+        connection.exec_driver_sql(
+            "ALTER TABLE review_runs ADD COLUMN affected_requirement_ids JSON"
+        )
+
+    action_item_columns = {
+        str(column["name"])
+        for column in inspect(connection).get_columns("action_items")
+    }
+    if "completed_by" not in action_item_columns:
+        connection.exec_driver_sql(
+            "ALTER TABLE action_items ADD COLUMN completed_by VARCHAR(200)"
+        )
+
+    decision_columns = {
+        str(column["name"])
+        for column in inspect(connection).get_columns("decisions")
+    }
+    missing_decision_columns = {
+        "actor": "VARCHAR(200)",
+        "review_run_id": "INTEGER",
+        "assessment_id": "INTEGER",
+        "version_ids": "JSON",
+    }
+    for column_name, column_type in missing_decision_columns.items():
+        if column_name not in decision_columns:
+            connection.exec_driver_sql(
+                f"ALTER TABLE decisions ADD COLUMN {column_name} {column_type}"
+            )
 
     review_job_columns = {
         str(column["name"])

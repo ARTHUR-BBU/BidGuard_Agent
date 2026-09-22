@@ -17,10 +17,11 @@ BidGuard Agent 是一个面向政府采购和企业招标团队的提交前质�
 - Task 10 程序化部分：受控页面读取、投标/企业证据检索、Assessment 候选、人工确认请求和 ActionItem 工具。
 - Task 11 程序化部分：按要求运行受限 Review Agent、保存 Assessment、处理人工确认，并在失败时保留可恢复进度。
 - Task 12：持久化 ReviewJob、单进程后台 Worker、中断恢复、审核状态 API 和要求详情 API。
+- Task 13：人工决定、行动项完成、版本影响计算和增量复核排队。
 
-验证结果：后端全量测试 `277 passed`，Ruff 和 Mypy 通过；Task 9 独立复核 `Ready = Yes`，Task 10 工具门禁、Task 11 编排门禁和 Task 12 Worker 回归已完成。
+验证结果：后端全量测试 `285 passed`，Ruff 和 Mypy 通过；Task 9 独立复核 `Ready = Yes`，Task 10 工具门禁、Task 11 编排门禁、Task 12 Worker 回归和 Task 13 增量复核回归已完成。
 
-尚未完成：真实业务文本的模型质量评测、完整招标包覆盖、人工决定闭环、完整前端审核流程和报告导出。当前不能宣传为自动投标、自动签章或中标保证工具。
+尚未完成：真实业务文本的模型质量评测、完整招标包覆盖、完整前端审核流程和报告导出。当前不能宣传为自动投标、自动签章或中标保证工具。
 
 ## 核心原则
 
@@ -42,12 +43,15 @@ Task 11 复盘见：[从“有工具”到“能按规矩办事”](docs/develop
 
 Task 12 复盘见：[给审核员建立后台工位和交接制度](docs/development-review-task12.md)。
 
+Task 13 复盘见：[把待确认接成人的决定，再按变化范围复核](docs/development-review-task13.md)。
+
 治理总纲：
 
 - [BidGuard Constitution](docs/governance/bidguard-constitution.md)
 - [LLM 定位、权限与分阶段开发规范](docs/governance/llm-position-authority-phased-development.md)
 - [Task 11 Constitution Impact](docs/governance/task-11-constitution-impact.md)
 - [Task 12 Constitution Impact](docs/governance/task-12-constitution-impact.md)
+- [Task 13 Constitution Impact](docs/governance/task-13-constitution-impact.md)
 - [开发日记](docs/development-diary.md)
 
 ## 准备环境
@@ -96,6 +100,7 @@ npm run dev -- --port 5173
 - `docs/development-review-task1-9.md`：阶段性开发复盘。
 - `docs/development-review-task11.md`：Task 11 受控审核编排复盘。
 - `docs/development-review-task12.md`：Task 12 持久化 Worker 复盘。
+- `docs/development-review-task13.md`：Task 13 人工决定与增量复核复盘。
 
 ## 开发边界
 

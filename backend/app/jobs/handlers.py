@@ -107,6 +107,7 @@ def start_review(
     project_id: int,
     tender_version_id: int | None = None,
     settings: Settings | None = None,
+    affected_requirement_ids: list[int] | None = None,
 ) -> tuple[ReviewJob, bool]:
     """Create one idempotent queued review job for the current file scope."""
 
@@ -134,6 +135,11 @@ def start_review(
         stage="created",
         model_provider=configured.model_provider,
         model_name=model_name,
+        affected_requirement_ids=(
+            sorted(set(affected_requirement_ids))
+            if affected_requirement_ids is not None
+            else None
+        ),
     )
     session.add(run)
     session.flush()
@@ -283,6 +289,16 @@ async def process_review_job(
             status=job.status,
             stage=job.stage,
         )
+        review_run = (
+            session.get(ReviewRun, job.review_run_id)
+            if job.review_run_id is not None
+            else None
+        )
+        affected_requirement_ids = (
+            list(review_run.affected_requirement_ids or [])
+            if review_run is not None and review_run.affected_requirement_ids is not None
+            else None
+        )
         session.rollback()
     _set_stage(session_factory, job_id, "parsing")
     _parse_scope_versions(
@@ -308,6 +324,7 @@ async def process_review_job(
         settings=configured,
         limits=limits,
         runner=runner,
+        requirement_ids=affected_requirement_ids,
     )
     _set_stage(
         session_factory,

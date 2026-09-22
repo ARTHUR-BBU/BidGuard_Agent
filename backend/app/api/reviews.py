@@ -84,7 +84,10 @@ def _latest_assessment(
     return session.scalar(
         select(Assessment)
         .join(ReviewRun, ReviewRun.id == Assessment.review_run_id)
-        .where(Assessment.requirement_id == requirement_id)
+        .where(
+            Assessment.requirement_id == requirement_id,
+            Assessment.current.is_(True),
+        )
         .order_by(ReviewRun.id.desc(), Assessment.id.desc())
         .limit(1)
     )

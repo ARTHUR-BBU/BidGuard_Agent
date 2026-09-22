@@ -1225,11 +1225,11 @@ git commit -m "feat: persist and resume review jobs"
 - Create: `backend/tests/test_incremental_review.py`
 - Modify: `backend/app/main.py`
 
-- [ ] **Step 1: Write failing decision tests**
+- [x] **Step 1: Write failing decision tests**
 
 Test `confirm`, `deny`, and `not_applicable` decisions with a required explanation. Assert Agent-created pending decisions cannot be silently deleted and every user decision creates an audit event.
 
-- [ ] **Step 2: Write failing incremental-scope tests**
+- [x] **Step 2: Write failing incremental-scope tests**
 
 Test:
 
@@ -1238,7 +1238,7 @@ Test:
 - unaffected requirements remain current;
 - a changed tender version marks the entire old requirement matrix inactive.
 
-- [ ] **Step 3: Implement decision API**
+- [x] **Step 3: Implement decision API**
 
 Add:
 
@@ -1250,7 +1250,7 @@ POST /api/projects/{id}/re-review
 
 `re-review` calculates and stores the affected requirement ids before enqueueing a job.
 
-- [ ] **Step 4: Verify and commit**
+- [x] **Step 4: Verify and commit**
 
 ```powershell
 uv run pytest tests/test_decisions_api.py tests/test_incremental_review.py -v

@@ -16,6 +16,7 @@ from sqlalchemy import (
     UniqueConstraint,
     event,
     inspect,
+    select,
 )
 from sqlalchemy.engine import Connection
 from sqlalchemy.orm import (
@@ -260,6 +261,7 @@ class ReviewRun(Base):
     resumable_requirement_id: Mapped[int | None] = mapped_column(
         ForeignKey("requirements.id", ondelete="SET NULL")
     )
+    affected_requirement_ids: Mapped[list[int] | None] = mapped_column(JSON)
     started_at: Mapped[datetime] = mapped_column(
         UTCDateTime(), default=utc_now, nullable=False
     )
@@ -465,6 +467,7 @@ class ActionItem(Base):
         UTCDateTime(), default=utc_now, nullable=False
     )
     completed_at: Mapped[datetime | None] = mapped_column(UTCDateTime())
+    completed_by: Mapped[str | None] = mapped_column(String(200))
 
     requirement: Mapped[Requirement] = relationship(back_populates="action_items")
 
@@ -478,11 +481,36 @@ class Decision(Base):
     )
     decision: Mapped[str] = mapped_column(String(80), nullable=False)
     explanation: Mapped[str] = mapped_column(Text, nullable=False)
+    actor: Mapped[str | None] = mapped_column(String(200))
+    review_run_id: Mapped[int | None] = mapped_column(
+        ForeignKey("review_runs.id", ondelete="SET NULL"), index=True
+    )
+    assessment_id: Mapped[int | None] = mapped_column(
+        ForeignKey("assessments.id", ondelete="SET NULL"), index=True
+    )
+    version_ids: Mapped[list[int] | None] = mapped_column(JSON)
     created_at: Mapped[datetime] = mapped_column(
         UTCDateTime(), default=utc_now, nullable=False
     )
 
     requirement: Mapped[Requirement] = relationship(back_populates="decisions")
+
+
+@event.listens_for(Requirement, "before_delete")
+def _protect_requirement_decision_history(
+    _mapper: Mapper[Requirement],
+    connection: Connection,
+    target: Requirement,
+) -> None:
+    decision_id = connection.execute(
+        select(Decision.id)
+        .where(Decision.requirement_id == target.id)
+        .limit(1)
+    ).scalar_one_or_none()
+    if decision_id is not None:
+        raise ValueError(
+            "Requirement with human or pending decisions cannot be deleted; deactivate it instead"
+        )
 
 
 class AuditEvent(Base):
