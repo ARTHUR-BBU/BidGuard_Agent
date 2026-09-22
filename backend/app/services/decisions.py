@@ -206,7 +206,7 @@ def _validated_changed_versions(
         document = session.get(Document, version.document_id)
         if document is None:
             raise DecisionScopeError("changed document version has no document")
-        if document.role in {"tender", "proposal", "company"}:
+        if document.role in {"tender", "proposal"}:
             if document.project_id != project_id:
                 raise DecisionScopeError("changed version is outside project scope")
         elif document.role == "company":
@@ -227,7 +227,7 @@ def _related_version_ids(
         if document is None:
             continue
         related.add(version.id)
-        if document.role in {"tender", "proposal"}:
+        if document.role in {"tender", "proposal", "company"}:
             related.update(
                 session.scalars(
                     select(DocumentVersion.id).where(

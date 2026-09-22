@@ -65,7 +65,7 @@ class BidProject(Base):
         back_populates="project", cascade="all, delete-orphan", passive_deletes=True
     )
     requirements: Mapped[list[Requirement]] = relationship(
-        back_populates="project", cascade="all, delete-orphan", passive_deletes=True
+        back_populates="project", cascade="all, delete-orphan"
     )
     review_runs: Mapped[list[ReviewRun]] = relationship(
         back_populates="project", cascade="all, delete-orphan", passive_deletes=True
@@ -504,12 +504,36 @@ def _protect_requirement_decision_history(
 ) -> None:
     decision_id = connection.execute(
         select(Decision.id)
-        .where(Decision.requirement_id == target.id)
+        .where(
+            Decision.requirement_id == target.id,
+            (Decision.actor.is_not(None) | (Decision.decision == "pending")),
+        )
         .limit(1)
     ).scalar_one_or_none()
     if decision_id is not None:
         raise ValueError(
             "Requirement with human or pending decisions cannot be deleted; deactivate it instead"
+        )
+
+
+@event.listens_for(BidProject, "before_delete")
+def _protect_project_decision_history(
+    _mapper: Mapper[BidProject],
+    connection: Connection,
+    target: BidProject,
+) -> None:
+    decision_id = connection.execute(
+        select(Decision.id)
+        .join(Requirement, Requirement.id == Decision.requirement_id)
+        .where(
+            Requirement.project_id == target.id,
+            (Decision.actor.is_not(None) | (Decision.decision == "pending")),
+        )
+        .limit(1)
+    ).scalar_one_or_none()
+    if decision_id is not None:
+        raise ValueError(
+            "Project with human or pending decisions cannot be deleted; archive it instead"
         )
 
 

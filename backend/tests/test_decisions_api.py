@@ -182,6 +182,23 @@ def test_requirement_with_decision_history_cannot_be_deleted(db_session) -> None
     db_session.rollback()
 
 
+def test_project_with_decision_history_cannot_be_deleted(db_session) -> None:
+    project, requirement, _assessment, _action = _graph(db_session)
+    record_decision(
+        db_session,
+        requirement_id=requirement.id,
+        decision="deny",
+        explanation="保留项目历史供审计。",
+        actor="张三",
+    )
+    db_session.commit()
+    db_session.expire_all()
+    db_session.delete(project)
+    with pytest.raises(ValueError, match="cannot be deleted"):
+        db_session.flush()
+    db_session.rollback()
+
+
 def test_decision_and_action_endpoints_persist_user_action(
     db_session: GuardedSession,
     monkeypatch: pytest.MonkeyPatch,

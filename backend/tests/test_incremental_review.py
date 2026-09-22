@@ -232,3 +232,30 @@ def test_changed_tender_deactivates_old_matrix_and_keeps_history(db_session) -> 
     assert db_session.get(Requirement, requirement_proposal.id) is not None
     assert result.job.status == "queued"
 
+
+def test_company_version_change_invalidates_assessments_using_company_evidence(
+    db_session,
+) -> None:
+    (
+        project,
+        _tender_v1,
+        _proposal_v1,
+        _proposal_v2,
+        _company_v1,
+        company_v2,
+        _requirement_proposal,
+        requirement_company,
+        _assessment_proposal,
+        assessment_company,
+    ) = _graph(db_session)
+
+    result = start_incremental_review(
+        db_session,
+        project_id=project.id,
+        changed_version_ids=[company_v2.id],
+        actor="张三",
+        settings=Settings(review_model="test-model"),
+    )
+
+    assert result.affected_requirement_ids == (requirement_company.id,)
+    assert assessment_company.current is False

@@ -20,6 +20,8 @@ _VERSION_SIZE_UPDATE_TRIGGER = "trg_document_versions_size_update"
 _CHUNK_CONTENT_INSERT_TRIGGER = "trg_document_chunks_content_insert_v2"
 _CHUNK_CONTENT_UPDATE_TRIGGER = "trg_document_chunks_content_update_v2"
 _DOCUMENT_VERSION_REFERENCE_DELETE_TRIGGER = "trg_document_versions_reference_delete"
+_REQUIREMENT_DECISION_HISTORY_DELETE_TRIGGER = "trg_requirements_decision_history_delete"
+_PROJECT_DECISION_HISTORY_DELETE_TRIGGER = "trg_projects_decision_history_delete"
 
 
 def _row_ids(connection: Connection, statement: str) -> list[int]:
@@ -183,6 +185,10 @@ def _migration_needed(connection: Connection) -> bool:
         and identity_is_enforced
         and version_size_is_enforced
         and chunk_content_is_enforced
+        and {
+            _REQUIREMENT_DECISION_HISTORY_DELETE_TRIGGER,
+            _PROJECT_DECISION_HISTORY_DELETE_TRIGGER,
+        }.issubset(trigger_names)
     )
 
 
@@ -407,6 +413,44 @@ def _install_document_version_reference_trigger(connection: Connection) -> None:
     )
 
 
+def _install_decision_history_delete_triggers(connection: Connection) -> None:
+    """Keep human and Agent decision history append-only in SQLite."""
+
+    connection.exec_driver_sql(
+        f"""
+        CREATE TRIGGER IF NOT EXISTS {_REQUIREMENT_DECISION_HISTORY_DELETE_TRIGGER}
+        BEFORE DELETE ON requirements
+        FOR EACH ROW
+        WHEN EXISTS (
+            SELECT 1
+            FROM decisions
+            WHERE requirement_id = OLD.id
+              AND (actor IS NOT NULL OR decision = 'pending')
+        )
+        BEGIN
+            SELECT RAISE(ABORT, 'requirement has decision history; archive instead');
+        END
+        """
+    )
+    connection.exec_driver_sql(
+        f"""
+        CREATE TRIGGER IF NOT EXISTS {_PROJECT_DECISION_HISTORY_DELETE_TRIGGER}
+        BEFORE DELETE ON bid_projects
+        FOR EACH ROW
+        WHEN EXISTS (
+            SELECT 1
+            FROM requirements AS r
+            JOIN decisions AS d ON d.requirement_id = r.id
+            WHERE r.project_id = OLD.id
+              AND (d.actor IS NOT NULL OR d.decision = 'pending')
+        )
+        BEGIN
+            SELECT RAISE(ABORT, 'project has decision history; archive instead');
+        END
+        """
+    )
+
+
 def _upgrade_legacy_sqlite(connection: Connection) -> None:
     if not _migration_needed(connection):
         return
@@ -544,6 +588,7 @@ def _upgrade_legacy_sqlite(connection: Connection) -> None:
     if not _has_current_identity_check(connection):
         _install_identity_triggers(connection)
     _install_parser_integrity_triggers(connection)
+    _install_decision_history_delete_triggers(connection)
 
     if _migration_needed(connection):
         _stop("the upgraded schema did not pass its post-migration verification")
@@ -566,6 +611,7 @@ def ensure_schema(engine: Engine) -> None:
             Base.metadata.create_all(connection)
             _upgrade_legacy_sqlite(connection)
             _install_document_version_reference_trigger(connection)
+            _install_decision_history_delete_triggers(connection)
             connection.commit()
         except SchemaMigrationError:
             connection.rollback()
