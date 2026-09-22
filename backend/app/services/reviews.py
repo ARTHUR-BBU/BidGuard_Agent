@@ -393,7 +393,7 @@ async def run_review(
         )
         if requested_ids is not None:
             statement = statement.where(Requirement.id.in_(requested_ids))
-            requirements = list(session.scalars(statement.order_by(Requirement.id)))
+        requirements = list(session.scalars(statement.order_by(Requirement.id)))
         if requested_ids is not None and {item.id for item in requirements} != set(requested_ids):
             raise ModelGovernanceError("review requirements are outside project scope")
         if run.resumable_requirement_id is not None:

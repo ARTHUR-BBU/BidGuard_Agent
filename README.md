@@ -16,10 +16,11 @@ BidGuard Agent 是一个面向政府采购和企业招标团队的提交前质�
 - Task 9 程序化部分：带引用门禁的要求提取、历史保留、失败记账。
 - Task 10 程序化部分：受控页面读取、投标/企业证据检索、Assessment 候选、人工确认请求和 ActionItem 工具。
 - Task 11 程序化部分：按要求运行受限 Review Agent、保存 Assessment、处理人工确认，并在失败时保留可恢复进度。
+- Task 12：持久化 ReviewJob、单进程后台 Worker、中断恢复、审核状态 API 和要求详情 API。
 
-验证结果：后端全量测试 `273 passed`，Ruff 和 Mypy 通过；Task 9 独立复核 `Ready = Yes`，Task 10 工具门禁和 Task 11 编排门禁已完成。
+验证结果：后端全量测试 `277 passed`，Ruff 和 Mypy 通过；Task 9 独立复核 `Ready = Yes`，Task 10 工具门禁、Task 11 编排门禁和 Task 12 Worker 回归已完成。
 
-尚未完成：真实业务文本的模型质量评测、完整招标包覆盖、后台任务 worker、人工决定闭环、完整前端审核流程和报告导出。当前不能宣传为自动投标、自动签章或中标保证工具。
+尚未完成：真实业务文本的模型质量评测、完整招标包覆盖、人工决定闭环、完整前端审核流程和报告导出。当前不能宣传为自动投标、自动签章或中标保证工具。
 
 ## 核心原则
 
@@ -31,7 +32,7 @@ BidGuard Agent 是一个面向政府采购和企业招标团队的提交前质�
 
 ```text
 文件版本 → 可定位解析 → 项目范围检索 → ReviewContext
-        → 受限 Agent → 引用门禁 → Requirement
+        → ReviewJob / 后台 Worker → 受限 Agent → 引用门禁 → Requirement
         → 受控证据工具 → Assessment 候选 → 人工确认/复核
 ```
 
@@ -39,11 +40,14 @@ BidGuard Agent 是一个面向政府采购和企业招标团队的提交前质�
 
 Task 11 复盘见：[从“有工具”到“能按规矩办事”](docs/development-review-task11.md)。
 
+Task 12 复盘见：[给审核员建立后台工位和交接制度](docs/development-review-task12.md)。
+
 治理总纲：
 
 - [BidGuard Constitution](docs/governance/bidguard-constitution.md)
 - [LLM 定位、权限与分阶段开发规范](docs/governance/llm-position-authority-phased-development.md)
 - [Task 11 Constitution Impact](docs/governance/task-11-constitution-impact.md)
+- [Task 12 Constitution Impact](docs/governance/task-12-constitution-impact.md)
 - [开发日记](docs/development-diary.md)
 
 ## 准备环境
@@ -91,6 +95,7 @@ npm run dev -- --port 5173
 - `docs/governance/`：项目宪法、LLM 规范和 Constitution impact 记录；
 - `docs/development-review-task1-9.md`：阶段性开发复盘。
 - `docs/development-review-task11.md`：Task 11 受控审核编排复盘。
+- `docs/development-review-task12.md`：Task 12 持久化 Worker 复盘。
 
 ## 开发边界
 

@@ -16,10 +16,11 @@ Completed:
 - Task 9 programmatic scope: cited requirement extraction, history preservation, and failure logging.
 - Task 10 programmatic scope: guarded page reads, proposal/company evidence search, candidate Assessments, confirmation requests, and ActionItem tools.
 - Task 11 programmatic scope: per-requirement bounded Review Agent runs, Assessment persistence, human-confirmation handling, and resumable progress on failure.
+- Task 12: persisted ReviewJobs, a single-process background Worker, interrupted-job recovery, review status APIs, and requirement detail APIs.
 
-Verification: `273 passed` backend tests, Ruff and Mypy pass, the independent Task 9 review returned `Ready = Yes`, and Task 10's tool gates plus Task 11's orchestration gates are implemented.
+Verification: `277 passed` backend tests, Ruff and Mypy pass, the independent Task 9 review returned `Ready = Yes`, and Task 10's tool gates, Task 11's orchestration gates, and Task 12's Worker regression suite are implemented.
 
-Not completed: real-business model-quality evaluation, complete tender-package coverage, a persisted job worker, human-decision workflow, the complete review UI, and report export. The current MVP must not be described as an automatic submission, signing, or winning-guarantee product.
+Not completed: real-business model-quality evaluation, complete tender-package coverage, human-decision workflow, the complete review UI, and report export. The current MVP must not be described as an automatic submission, signing, or winning-guarantee product.
 
 ## Core principle
 
@@ -31,7 +32,7 @@ The model is not the permission system, database, factual adjudicator, or submis
 
 ```text
 Document version → traceable parsing → scoped retrieval → ReviewContext
-                → bounded Agent → citation gate → Requirement
+                → ReviewJob / background Worker → bounded Agent → citation gate → Requirement
                 → guarded evidence tools → Assessment candidate → human confirmation/review
 ```
 
@@ -39,11 +40,14 @@ Read the detailed [Task 1–9 development review](docs/development-review-task1-
 
 Read the [Task 11 review: from guarded tools to governed orchestration](docs/development-review-task11.md).
 
+Read the [Task 12 review: persistent worker and handoff](docs/development-review-task12.md).
+
 Governance documents:
 
 - [BidGuard Constitution](docs/governance/bidguard-constitution.md)
 - [LLM positioning, authority, and phased development standard](docs/governance/llm-position-authority-phased-development.md)
 - [Task 11 Constitution Impact](docs/governance/task-11-constitution-impact.md)
+- [Task 12 Constitution Impact](docs/governance/task-12-constitution-impact.md)
 - [Development diary](docs/development-diary.md)
 
 ## Prerequisites
@@ -91,6 +95,7 @@ Development page: <http://localhost:5173>
 - `docs/governance/`: constitution, LLM standard, and Constitution impact records;
 - `docs/development-review-task1-9.md`: stage-by-stage development review.
 - `docs/development-review-task11.md`: Task 11 bounded-review orchestration review.
+- `docs/development-review-task12.md`: Task 12 persisted-worker review.
 
 ## Development boundaries
 
