@@ -15,10 +15,11 @@ Completed:
 - Task 8A: `ReviewContext`, coverage, budgets, authorizations, conflict blocking, and a model-call ledger;
 - Task 9 programmatic scope: cited requirement extraction, history preservation, and failure logging.
 - Task 10 programmatic scope: guarded page reads, proposal/company evidence search, candidate Assessments, confirmation requests, and ActionItem tools.
+- Task 11 programmatic scope: per-requirement bounded Review Agent runs, Assessment persistence, human-confirmation handling, and resumable progress on failure.
 
-Verification: `268 passed` backend tests, Ruff and Mypy pass, the independent Task 9 review returned `Ready = Yes`, and Task 10's programmatic tool gates are implemented.
+Verification: `273 passed` backend tests, Ruff and Mypy pass, the independent Task 9 review returned `Ready = Yes`, and Task 10's tool gates plus Task 11's orchestration gates are implemented.
 
-Not completed: real-business model-quality evaluation, complete tender-package coverage, full Review Agent orchestration, human-decision workflow, the complete review UI, and report export. The current MVP must not be described as an automatic submission, signing, or winning-guarantee product.
+Not completed: real-business model-quality evaluation, complete tender-package coverage, a persisted job worker, human-decision workflow, the complete review UI, and report export. The current MVP must not be described as an automatic submission, signing, or winning-guarantee product.
 
 ## Core principle
 
@@ -40,6 +41,7 @@ Governance documents:
 
 - [BidGuard Constitution](docs/governance/bidguard-constitution.md)
 - [LLM positioning, authority, and phased development standard](docs/governance/llm-position-authority-phased-development.md)
+- [Task 11 Constitution Impact](docs/governance/task-11-constitution-impact.md)
 - [Development diary](docs/development-diary.md)
 
 ## Prerequisites
@@ -81,8 +83,8 @@ Development page: <http://localhost:5173>
 ## Repository map
 
 - `backend/app/documents/`: safe storage, parsing, and deterministic retrieval;
-- `backend/app/agents/`: provider boundary, context, governance, extraction, and future tools;
-- `backend/app/services/`: project, upload, and requirement persistence services;
+- `backend/app/agents/`: provider boundary, context, governance, extraction, review Agent, and guarded tools;
+- `backend/app/services/`: project, upload, requirement persistence, and review orchestration services;
 - `backend/tests/`: deterministic, adversarial, and Agent contract tests;
 - `docs/governance/`: constitution, LLM standard, and Constitution impact records;
 - `docs/development-review-task1-9.md`: stage-by-stage development review.

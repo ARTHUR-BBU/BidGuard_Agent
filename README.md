@@ -15,10 +15,11 @@ BidGuard Agent 是一个面向政府采购和企业招标团队的提交前质�
 - Task 8A：ReviewContext、Coverage、预算、授权、冲突阻断和调用台账；
 - Task 9 程序化部分：带引用门禁的要求提取、历史保留、失败记账。
 - Task 10 程序化部分：受控页面读取、投标/企业证据检索、Assessment 候选、人工确认请求和 ActionItem 工具。
+- Task 11 程序化部分：按要求运行受限 Review Agent、保存 Assessment、处理人工确认，并在失败时保留可恢复进度。
 
-验证结果：后端全量测试 `268 passed`，Ruff 和 Mypy 通过；Task 9 独立复核 `Ready = Yes`，Task 10 已完成程序化工具门禁。
+验证结果：后端全量测试 `273 passed`，Ruff 和 Mypy 通过；Task 9 独立复核 `Ready = Yes`，Task 10 工具门禁和 Task 11 编排门禁已完成。
 
-尚未完成：真实业务文本的模型质量评测、完整招标包覆盖、完整 Review Agent 编排、人工决定闭环、完整前端审核流程和报告导出。当前不能宣传为自动投标、自动签章或中标保证工具。
+尚未完成：真实业务文本的模型质量评测、完整招标包覆盖、后台任务 worker、人工决定闭环、完整前端审核流程和报告导出。当前不能宣传为自动投标、自动签章或中标保证工具。
 
 ## 核心原则
 
@@ -40,6 +41,7 @@ BidGuard Agent 是一个面向政府采购和企业招标团队的提交前质�
 
 - [BidGuard Constitution](docs/governance/bidguard-constitution.md)
 - [LLM 定位、权限与分阶段开发规范](docs/governance/llm-position-authority-phased-development.md)
+- [Task 11 Constitution Impact](docs/governance/task-11-constitution-impact.md)
 - [开发日记](docs/development-diary.md)
 
 ## 准备环境
@@ -81,8 +83,8 @@ npm run dev -- --port 5173
 ## 目录说明
 
 - `backend/app/documents/`：安全存储、解析和确定性检索；
-- `backend/app/agents/`：模型供应商、上下文、治理、要求提取和后续工具；
-- `backend/app/services/`：项目、上传、要求持久化等业务服务；
+- `backend/app/agents/`：模型供应商、上下文、治理、要求提取、审核 Agent 和受控工具；
+- `backend/app/services/`：项目、上传、要求持久化和审核编排等业务服务；
 - `backend/tests/`：确定性、对抗式和 Agent 合约测试；
 - `docs/governance/`：项目宪法、LLM 规范和 Constitution impact 记录；
 - `docs/development-review-task1-9.md`：阶段性开发复盘。
