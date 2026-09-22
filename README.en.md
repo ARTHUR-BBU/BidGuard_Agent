@@ -18,8 +18,9 @@ Completed:
 - Task 11 programmatic scope: per-requirement bounded Review Agent runs, Assessment persistence, human-confirmation handling, and resumable progress on failure.
 - Task 12: persisted ReviewJobs, a single-process background Worker, interrupted-job recovery, review status APIs, and requirement detail APIs.
 - Task 13: human decisions, action-item completion, version-impact calculation, and incremental review enqueueing.
+- Task 14: typed frontend API client, shared status badges, and the user-facing application shell.
 
-Verification: `287 passed` backend tests, Ruff and Mypy pass, the independent Task 9 review returned `Ready = Yes`, and Task 10's tool gates, Task 11's orchestration gates, Task 12's Worker regression suite, and Task 13's incremental-review regressions are implemented.
+Verification: `287 passed` backend tests, Ruff and Mypy pass, frontend Vitest, oxlint, and production build pass, the independent Task 9 review returned `Ready = Yes`, and Task 10's tool gates, Task 11's orchestration gates, Task 12's Worker regression suite, Task 13's incremental-review regressions, and Task 14's frontend-shell acceptance are implemented.
 
 Not completed: real-business model-quality evaluation, complete tender-package coverage, the complete review UI, and report export. The current MVP must not be described as an automatic submission, signing, or winning-guarantee product.
 
@@ -45,6 +46,8 @@ Read the [Task 12 review: persistent worker and handoff](docs/development-review
 
 Read the [Task 13 review: human decisions and incremental review](docs/development-review-task13.md).
 
+Read the [Task 14 review: the user-facing application shell](docs/development-review-task14.md).
+
 Governance documents:
 
 - [BidGuard Constitution](docs/governance/bidguard-constitution.md)
@@ -52,6 +55,7 @@ Governance documents:
 - [Task 11 Constitution Impact](docs/governance/task-11-constitution-impact.md)
 - [Task 12 Constitution Impact](docs/governance/task-12-constitution-impact.md)
 - [Task 13 Constitution Impact](docs/governance/task-13-constitution-impact.md)
+- [Task 14 Constitution Impact](docs/governance/task-14-constitution-impact.md)
 - [Development diary](docs/development-diary.md)
 
 ## Prerequisites
@@ -101,6 +105,7 @@ Development page: <http://localhost:5173>
 - `docs/development-review-task11.md`: Task 11 bounded-review orchestration review.
 - `docs/development-review-task12.md`: Task 12 persisted-worker review.
 - `docs/development-review-task13.md`: Task 13 human-decision and incremental-review review.
+- `docs/development-review-task14.md`: Task 14 frontend shell and API-boundary review.
 
 ## Development boundaries
 
