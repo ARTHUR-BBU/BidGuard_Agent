@@ -37,6 +37,8 @@ BidGuard Agent 是一个面向政府采购和企业招标团队的提交前质�
 
 详细阶段复盘见：[Task 1—9 阶段复盘](docs/development-review-task1-9.md)。
 
+Task 11 复盘见：[从“有工具”到“能按规矩办事”](docs/development-review-task11.md)。
+
 治理总纲：
 
 - [BidGuard Constitution](docs/governance/bidguard-constitution.md)
@@ -88,6 +90,7 @@ npm run dev -- --port 5173
 - `backend/tests/`：确定性、对抗式和 Agent 合约测试；
 - `docs/governance/`：项目宪法、LLM 规范和 Constitution impact 记录；
 - `docs/development-review-task1-9.md`：阶段性开发复盘。
+- `docs/development-review-task11.md`：Task 11 受控审核编排复盘。
 
 ## 开发边界
 

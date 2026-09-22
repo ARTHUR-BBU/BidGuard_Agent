@@ -37,6 +37,8 @@ Document version → traceable parsing → scoped retrieval → ReviewContext
 
 Read the detailed [Task 1–9 development review](docs/development-review-task1-9.md).
 
+Read the [Task 11 review: from guarded tools to governed orchestration](docs/development-review-task11.md).
+
 Governance documents:
 
 - [BidGuard Constitution](docs/governance/bidguard-constitution.md)
@@ -88,6 +90,7 @@ Development page: <http://localhost:5173>
 - `backend/tests/`: deterministic, adversarial, and Agent contract tests;
 - `docs/governance/`: constitution, LLM standard, and Constitution impact records;
 - `docs/development-review-task1-9.md`: stage-by-stage development review.
+- `docs/development-review-task11.md`: Task 11 bounded-review orchestration review.
 
 ## Development boundaries
 
